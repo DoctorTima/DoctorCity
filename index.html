@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DoctorCity</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Single dark world: the city at night. Glowstone amber is the only accent.
+   Layout: live 3D city as the hero, then a survey dossier in one reading column with wide figures. */
+:root {
+  --ink: #0f131c;
+  --panel: #171c28;
+  --line: #2a3142;
+  --text: #ebe6da;
+  --muted: #a7a196;
+  --glow: #f2b24c;
+  --glow-ink: #1a1306;
+  --font-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--ink); color: var(--text); }
+body { font-family: var(--font-body); font-size: 17px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+a { color: var(--glow); }
+:focus-visible { outline: 2px solid var(--glow); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- viewer ---------- */
+.viewer { position: relative; height: clamp(440px, 70vh, 780px); background: #9fcbf0 url(poster.jpg) center / cover no-repeat; overflow: hidden; touch-action: none; }
+.viewer canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity .6s; }
+.viewer.ready canvas { opacity: 1; }
+.scrim { position: absolute; inset: 0 0 auto 0; height: 170px; background: linear-gradient(180deg, rgba(15,19,28,.82), rgba(15,19,28,0)); pointer-events: none; }
+.title { position: absolute; top: 18px; left: 20px; right: 20px; pointer-events: none; }
+.title h1 { font-size: clamp(30px, 5vw, 52px); font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: #fff; }
+.title p { margin: 8px 0 0; font-size: 15px; color: #e5dfd2; max-width: 46ch; }
+.loading { position: absolute; left: 20px; bottom: 20px; font-family: var(--font-mono); font-size: 13px; color: #fff; background: rgba(15,19,28,.75); padding: 6px 10px; border-radius: 6px; }
+.viewer.ready .loading { display: none; }
+.controls { position: absolute; right: 16px; bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 32px); }
+.seg { display: flex; background: rgba(15,19,28,.82); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 3px; gap: 2px; }
+.btn { font: 500 14px/1 var(--font-body); color: var(--text); background: transparent; border: 0; border-radius: 7px; padding: 10px 13px; cursor: pointer; min-height: 40px; }
+.btn[aria-pressed="true"] { background: var(--glow); color: var(--glow-ink); }
+.btn:hover { background: rgba(255,255,255,.08); }
+.btn[aria-pressed="true"]:hover { background: var(--glow); }
+.ar-link { display: none; align-items: center; gap: 8px; text-decoration: none; font: 600 14px/1 var(--font-body); color: var(--glow-ink); background: var(--glow); border-radius: 10px; padding: 0 14px 0 6px; min-height: 46px; }
+.ar-link img { width: 34px; height: 34px; border-radius: 6px; image-rendering: pixelated; }
+.ar-ok .ar-link { display: inline-flex; }
+.pins { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.scrim { z-index: 2; } .title { z-index: 3; } .card, .controls, .loading, .hint { z-index: 4; }
+.pin { position: absolute; left: 0; top: 0; transform: translate(-9999px, 0); pointer-events: auto; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 2px solid var(--ink); background: var(--glow); color: var(--glow-ink); font: 700 13px/26px var(--font-body); text-align: center; cursor: pointer; padding: 0; box-shadow: 0 2px 8px rgba(0,0,0,.45); }
+.pin[aria-current="true"] { background: #fff; }
+.pin.u { background: #fff; color: var(--ink); border-color: var(--glow); }
+.pin.u[aria-current="true"] { background: var(--glow); }
+.pin.p { width: 14px; height: 14px; margin: -7px 0 0 -7px; background: #9fd6ff; border: 2px solid var(--ink); font-size: 0; line-height: 0; }
+.pin.p[aria-current="true"] { background: #fff; }
+.card .date { margin: 8px 0 0; font-size: 13px; color: var(--glow); }
+.place .when { margin: 0; font-size: 13px; color: var(--glow); }
+.place .num.u { background: #fff; color: var(--ink); box-shadow: inset 0 0 0 2px var(--glow); }
+h3.sub { font-size: 18px; margin: 34px 0 8px; }
+.timeline { list-style: none; padding: 0; margin: 14px 0 0; max-width: 760px; }
+.timeline li { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+.timeline b { font-family: var(--font-mono); font-weight: 500; color: var(--glow); font-size: 14px; }
+@media (max-width: 560px) { .timeline li { grid-template-columns: 1fr; gap: 2px; } }
+.tablewrap { overflow-x: auto; margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; }
+.ptable { min-width: 720px; }
+.ptable th, .ptable td { padding: 9px 12px; vertical-align: top; font-size: 14px; }
+.ptable td.num { text-align: right; }
+.ptable tr.me td { color: var(--glow); }
+.ptable .mono { font-size: 12px; color: var(--muted); }
+.book { background: #e8dfcc; color: #2a2418; border-radius: 10px; padding: 18px 22px 20px; max-width: 520px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+.book h3 { color: #2a2418; font-size: 17px; }
+.book .sig { font-size: 13px; color: #6b5f48; margin: 4px 0 10px; }
+.book ol { margin: 0; padding-left: 22px; font-size: 15px; line-height: 1.45; }
+.book li { margin-bottom: 6px; }
+.card { position: absolute; left: 16px; bottom: 76px; width: min(380px, calc(100% - 32px)); background: rgba(15,19,28,.9); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 14px 16px 16px; display: none; }
+.card.open { display: block; }
+.card .k { padding-right: 30px; display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 13px; color: var(--muted); }
+.card h3 { font-size: 18px; margin: 6px 0 6px; color: #fff; }
+.card p { margin: 0; font-size: 15px; line-height: 1.45; }
+.card .x { position: absolute; top: 6px; right: 6px; background: none; border: 0; color: var(--muted); font-size: 22px; width: 36px; height: 36px; cursor: pointer; }
+.hint { position: absolute; left: 20px; bottom: 22px; font-size: 13px; color: #fff; background: rgba(15,19,28,.7); padding: 6px 10px; border-radius: 6px; pointer-events: none; }
+.viewer:not(.ready) .hint, .viewer.picked .hint { display: none; }
+@media (max-width: 640px) { .hint { display: none; } .card { bottom: 128px; } }
+
+/* ---------- chips ---------- */
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 14px 16px; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; display: inline-flex; align-items: center; gap: 8px; font: 500 14px/1 var(--font-body); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px 8px 8px; cursor: pointer; min-height: 40px; }
+.chip b { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--glow); color: var(--glow-ink); font-size: 12px; }
+.chip:hover { border-color: var(--glow); }
+
+/* ---------- dossier ---------- */
+main { max-width: 1120px; margin: 0 auto; padding: 8px 20px 64px; }
+section { padding: 52px 0 8px; border-bottom: 1px solid var(--line); }
+section:last-of-type { border-bottom: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: 13px; color: var(--glow); letter-spacing: .02em; margin: 0 0 10px; }
+section > h2 { font-size: clamp(24px, 3.2vw, 34px); margin-bottom: 18px; }
+.prose { max-width: 66ch; }
+.prose p { margin: 0 0 14px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+@media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+figure { margin: 0; }
+figure img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); image-rendering: pixelated; }
+figure.photo img { image-rendering: auto; }
+figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.stat { background: var(--ink); padding: 18px 18px 20px; }
+.stat .n { font-family: var(--font-display); font-weight: 600; font-size: clamp(22px, 3vw, 30px); line-height: 1.1; color: var(--glow); font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 15px; color: var(--text); margin-top: 6px; }
+.stat .s { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+.offices { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin: 18px 0 8px; padding: 0; list-style: none; }
+.offices li { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 15px; }
+.offices li span { display: block; font-size: 12px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); }
+th { font-weight: 500; color: var(--muted); font-size: 13px; }
+td.num, th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; padding-right: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.panel h3 { font-size: 16px; margin-bottom: 10px; }
+.panel + .panel { margin-top: 14px; }
+.verdict .panel + .panel { margin-top: 0; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 12px 0 0; padding: 0; list-style: none; font-size: 14px; }
+.legend li { display: flex; align-items: center; gap: 8px; }
+.legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.lu { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 18px 0 6px; }
+@media (max-width: 560px) { .lu { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.lu div { border-top: 3px solid; padding-top: 8px; }
+.lu b { font-family: var(--font-display); font-size: 22px; font-weight: 600; display: block; font-variant-numeric: tabular-nums; }
+.lu span { font-size: 13px; color: var(--muted); }
+
+.places { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-top: 22px; }
+.place { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+.place .top { display: flex; align-items: center; gap: 10px; }
+.place .num { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--glow); color: var(--glow-ink); font-weight: 700; font-size: 13px; }
+.place h3 { font-size: 15px; line-height: 1.25; }
+.place .meta { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.place p { margin: 0; font-size: 15px; line-height: 1.45; flex: 1; }
+.place button { align-self: flex-start; font: 500 14px/1 var(--font-body); color: var(--glow); background: none; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; cursor: pointer; margin-top: 6px; }
+.place button:hover { border-color: var(--glow); }
+
+.bars { display: grid; gap: 6px; margin-top: 8px; }
+.bar-row { display: grid; grid-template-columns: 28px minmax(120px, 190px) minmax(0, 1fr) 128px; gap: 10px; align-items: center; font-size: 15px; padding: 3px 0; border-radius: 6px; }
+.bar-row.noimg { grid-template-columns: minmax(140px, 230px) minmax(0, 1fr) 128px; }
+.bar-row img { width: 24px; height: 24px; image-rendering: pixelated; border-radius: 3px; }
+.bar-row .track { position: relative; height: 14px; }
+.bar-row .fill { position: absolute; left: 0; top: 0; bottom: 0; background: #8f8a80; border-radius: 0 4px 4px 0; }
+.bar-row:hover .fill, .bar-row:focus .fill { background: var(--glow); }
+.bar-row .v { text-align: right; font-family: var(--font-mono); font-size: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
+.bar-row .v small { color: var(--muted); }
+@media (max-width: 560px) { .bar-row { grid-template-columns: 24px minmax(0, 1fr) 104px; } .bar-row .track { grid-column: 2 / 4; grid-row: 2; } .bar-row.noimg { grid-template-columns: minmax(0, 1fr) 104px; } .bar-row.noimg .track { grid-column: 1 / 3; } }
+.tip { position: fixed; z-index: 10; pointer-events: none; background: #fff; color: #111; font-size: 13px; padding: 6px 9px; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.4); display: none; max-width: 260px; }
+.callout { border-left: 3px solid var(--glow); padding: 4px 0 4px 16px; margin: 22px 0 6px; max-width: 66ch; }
+.callout b { font-family: var(--font-display); font-weight: 600; color: var(--glow); font-variant-numeric: tabular-nums; }
+
+.verdict { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 900px) { .verdict { grid-template-columns: 1fr; } }
+.verdict .panel ul { margin: 0; padding-left: 18px; }
+.verdict .panel li { margin-bottom: 10px; font-size: 15.5px; line-height: 1.45; }
+.verdict .panel li:last-child { margin-bottom: 0; }
+footer { max-width: 1120px; margin: 0 auto; padding: 0 20px 48px; font-size: 13px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .viewer canvas { transition: none; } }
+
+.pin.s { background: #ff5c7a; color: #22060e; border-color: var(--ink); }
+.pin.s[aria-current="true"] { background: #fff; }
+.place .num.s { background: #ff5c7a; color: #22060e; }
+.place .loot { font-size: 14px; color: #ffb7c4; margin: 0; }
+.clues { list-style: none; margin: 18px 0 8px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 820px) { .clues { grid-template-columns: 1fr; } }
+.clues li { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; font-size: 15px; line-height: 1.45; }
+.clues b { display: block; font-family: var(--font-display); font-weight: 600; color: var(--glow); margin-bottom: 4px; font-size: 15px; }
+.chartwrap { overflow-x: auto; margin: 18px 0 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.chartwrap svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.chartwrap [data-tip] { cursor: default; }
+.chartwrap circle[data-tip]:hover { stroke: #fff; }
+.cap { font-size: 14px; color: var(--muted); margin: 0 0 8px; max-width: 80ch; }
+.ctable { min-width: 820px; }
+.ctable th, .ctable td { padding: 8px 12px; font-size: 14px; vertical-align: top; }
+.ctable td:first-child { color: var(--text); font-weight: 500; }
+.maps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+@media (max-width: 900px) { .maps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.maps figcaption { font-size: 13.5px; line-height: 1.4; }
+.maps figcaption b { display: block; color: var(--text); font-weight: 500; font-family: var(--font-mono); font-size: 13px; margin-bottom: 2px; }
+.side { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 24px; align-items: start; margin-top: 22px; }
+@media (max-width: 640px) { .side { grid-template-columns: 1fr; } }
+.ttable { min-width: 520px; }
+.ttable td, .ttable th { padding: 8px 12px; font-size: 14px; }
+
+.pin.g { background: #5fd39a; color: #062014; border-color: var(--ink); }
+.pin.g[aria-current="true"] { background: #fff; }
+.place .num.g { background: #5fd39a; color: #062014; }
+.place .why { font-size: 14px; color: var(--muted); margin: 0; }
+.compare { position: relative; overflow: hidden; border-radius: 10px; border: 1px solid var(--line); touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: ew-resize; margin-top: 14px; }
+.compare img { display: block; width: 100%; height: auto; border: 0; border-radius: 0; pointer-events: none; }
+.compare.px img { image-rendering: pixelated; }
+.compare .after { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--cut, 50%)); }
+.compare .after img { width: 100%; height: 100%; }
+.compare .bar { position: absolute; top: 0; bottom: 0; left: var(--cut, 50%); width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); pointer-events: none; }
+.compare .knob { position: absolute; top: 50%; left: var(--cut, 50%); transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 50%; background: #fff; color: #111; display: grid; place-items: center; font: 600 15px/1 var(--font-body); pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+.compare .lab { position: absolute; top: 10px; font: 500 13px/1 var(--font-mono); background: rgba(15,19,28,.82); color: #fff; padding: 6px 9px; border-radius: 6px; pointer-events: none; }
+.compare .lab.l { left: 10px; } .compare .lab.r { right: 10px; }
+.compare input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.compare:focus-within { outline: 2px solid var(--glow); outline-offset: 2px; }
+.ppin { position: absolute; transform: translate(-50%, -50%); width: 26px; height: 26px; border-radius: 50%; background: #5fd39a; color: #062014; font: 700 12px/1 var(--font-body); display: grid; place-items: center; border: 2px solid #0f131c; pointer-events: none; z-index: 2; }
+.ba { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 16px; }
+@media (max-width: 760px) { .ba { grid-template-columns: 1fr; } }
+.ba figure img { image-rendering: auto; }
+.rules { margin: 10px 0 0; padding-left: 20px; max-width: 70ch; }
+.rules li { margin-bottom: 8px; }
+.stats .stat .n small { font-size: .55em; color: var(--muted); font-weight: 400; }
+</style>
+</head>
+<body>
+
+<div class="viewer" id="viewer">
+  <canvas id="c" aria-label="Трёхмерная модель города DoctorCity"></canvas>
+  <div class="scrim"></div>
+  <div class="title">
+    <h1>DoctorCity</h1>
+    <p>Город-государство в Minecraft Pocket Edition. Заложен в 2013–2014, достраивался до 2019 года. Модель собрана из файлов мира.</p>
+  </div>
+  <div class="pins" id="pins"></div>
+  <div class="card" id="card" role="dialog" aria-live="polite">
+    <button class="x" id="cardClose" aria-label="Закрыть">×</button>
+    <div class="k"><span id="cardTag"></span><span class="mono" id="cardXZ"></span></div>
+    <h3 id="cardName"></h3>
+    <p id="cardText"></p>
+    <p class="date" id="cardDate"></p>
+  </div>
+  <div class="loading" id="loading">Загружаю модель…</div>
+  <div class="hint" id="hint">Крутите одним пальцем, приближайте щипком</div>
+  <div class="controls">
+    <a class="ar-link" id="arLink" rel="ar" href="DoctorCity.usdz"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABaklEQVR4XnWTvU6EQBSFLz8i7AYiGhv7bSxsjZ29pc+gtc+xr2DivouFBhObTewtdBu1cYMghGDOHQ47EPckZJjLnHvvfMw4F1+rVix9r800iZ0+yhjFb08vr+IjON/fk2OJ9Psi/dTx1Jn2hizN9f2xKHW8mRzoeC5iEsB8/fOmwWkQy5UfSNZuTKvS67pwtfptUOkaSBNQY/Oy2RERU5Vtz5KJzlnAx/7QNswnXi1ZW+sCmPNqrdWho7DRNRDiEoXDDmCm/jOfqaFWDki6+KjktyzERWs2MNO2YYGqeIzZQNzwMBowoLlvs0u0bEzb3I7NxAUDANlmtpNR6Bqd7YaRuH20kwLqKo/NMEH8E5Am4AGhGXsGVM5tXaaGEbajEDmxzTYw7hsjYdqJBxC30/a0bRsmGWgCgJwl8WCBfamwmFXZEQ+VJgDV5/e8O6489yZOcOMTCUZ3ZSHO4f2D3l8AwW/hOzWOjed/+7vgOfqnwMwAAAAASUVORK5CYII=" alt="">Город на столе в AR</a>
+    <div class="seg" role="group" aria-label="Освещение">
+      <button class="btn" id="mDay" aria-pressed="true">День</button>
+      <button class="btn" id="mNight" aria-pressed="false">Ночь</button>
+    </div>
+    <div class="seg" role="group" aria-label="Слой">
+      <button class="btn" id="lCity" aria-pressed="true">Город</button>
+      <button class="btn" id="lUnder" aria-pressed="false">Под землёй</button>
+      <button class="btn" id="lProj" aria-pressed="false">Проект</button>
+    </div>
+    <div class="seg"><button class="btn" id="bPlayers" aria-pressed="false">Игроки</button></div>
+    <div class="seg" role="group" aria-label="Камера">
+      <button class="btn" id="bOrbit" aria-pressed="false">Облёт</button>
+      <button class="btn" id="bHome" aria-pressed="false">Весь город</button>
+    </div>
+  </div>
+</div>
+
+<nav class="chips" id="chips" aria-label="Места города"></nav>
+
+<main>
+  <section id="passport">
+    <p class="eyebrow">Паспорт города</p>
+    <h2>Девять гектаров, поставленных вручную</h2>
+    <div class="stats">
+      <div class="stat"><div class="n">≈ 9 га</div><div class="l">площадь города</div><div class="s">около 300 × 300 блоков, блок = 1 м</div></div>
+      <div class="stat"><div class="n">185 тыс.</div><div class="l">поставленных блоков</div><div class="s">без природных: камня, земли, листвы</div></div>
+      <div class="stat"><div class="n">≈ 50</div><div class="l">построек</div><div class="s">медианная высота 16 блоков над землёй</div></div>
+      <div class="stat"><div class="n">Y 143</div><div class="l">вершина шпиля</div><div class="s">73 блока над платформой города</div></div>
+      <div class="stat"><div class="n">≈ 5 км</div><div class="l">железнодорожное кольцо</div><div class="s">прямоугольник 1,6 × 1 км вокруг мира</div></div>
+      <div class="stat"><div class="n">39</div><div class="l">игроков в сохранении</div><div class="s">записи о каждом, кто заходил</div></div>
+      <div class="stat"><div class="n">≈ 410 ч</div><div class="l">мир был открыт</div><div class="s">по внутреннему счётчику тиков</div></div>
+      <div class="stat"><div class="n">90%</div><div class="l">застройки в квадрате 256 × 256</div><div class="s">граница мира в старых версиях</div></div>
+    </div>
+  </section>
+
+  <section id="state">
+    <p class="eyebrow">Таблички, кафедры и сундуки</p>
+    <h2>Это было государство, а не просто город</h2>
+    <div class="grid2">
+      <div class="prose">
+        <p>В мире 114 табличек, и по ним видно, как город жил. В правительственной ложе стадиона стоят четыре кафедры с именами членов правительства. В банке висят ценники магазина и условия кредита. На заводе даже берут плату за вход.</p>
+        <p>Деньги здесь — изумруды. В сундуках города лежат 7 198 изумрудов, 3 361 золотой слиток и 2 085 алмазов. Этого хватило бы на 720 буханок хлеба по ценам местного магазина.</p>
+        <ul class="offices" aria-label="Должности по табличкам">
+          <li><span>глава государства</span>Президент</li>
+          <li><span>правительство</span>Премьер-министр</li>
+          <li><span>министерство</span>Министр экономики</li>
+          <li><span>министерство</span>Министр торговли</li>
+          <li><span>министерство</span>Министр безопасности</li>
+          <li><span>по «военным пакетам»</span>Император и главный инженер</li>
+        </ul>
+      </div>
+      <div>
+        <div class="panel">
+          <h3>Продуктовый магазин</h3>
+          <table>
+            <thead><tr><th>Товар</th><th class="num">Цена, изумрудов</th></tr></thead>
+            <tbody>
+              <tr><td>Хлеб</td><td class="num">10</td></tr>
+              <tr><td>Молоко</td><td class="num">6</td></tr>
+              <tr><td>Яблоки</td><td class="num">5</td></tr>
+              <tr><td>Морковь</td><td class="num">4</td></tr>
+              <tr><td>Арбуз</td><td class="num">8</td></tr>
+              <tr><td>Сырая курятина</td><td class="num">12</td></tr>
+              <tr><td>Сырая рыба</td><td class="num">15</td></tr>
+              <tr><td>Сырой лосось</td><td class="num">18</td></tr>
+              <tr><td>Борщ</td><td class="num">15</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h3>Банк и завод</h3>
+          <table>
+            <tbody>
+              <tr><td>Кредит</td><td class="num">15%</td></tr>
+              <tr><td>Страхование, в месяц</td><td class="num">24</td></tr>
+              <tr><td>Хранение инвентаря, в месяц</td><td class="num">24</td></tr>
+              <tr><td>Вход на завод</td><td class="num">3 стака</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="plan">
+    <p class="eyebrow">Планировка и зонирование</p>
+    <h2>Платформа, ось и набережная</h2>
+    <div class="grid2">
+      <figure>
+        <img src="map_zoning.png" alt="Карта зонирования города: здания, мощение, зелень, вода и песок" width="1020" height="990">
+        <ul class="legend">
+          <li><i style="background:#d95926"></i>здания</li>
+          <li><i style="background:#6c7284"></i>мощение</li>
+          <li><i style="background:#199e70"></i>зелень</li>
+          <li><i style="background:#3987e5"></i>вода</li>
+          <li><i style="background:#8a8270"></i>песок</li>
+          <li><i style="background:transparent;border:2px solid #f2b24c"></i>старая граница мира 256 × 256</li>
+        </ul>
+        <figcaption>Доли посчитаны внутри квадрата 256 × 256. Сетка — чанки по 16 блоков, север сверху.</figcaption>
+      </figure>
+      <div class="prose">
+        <div class="lu" aria-label="Доли территории">
+          <div style="border-color:#d95926"><b>30%</b><span>здания</span></div>
+          <div style="border-color:#6c7284"><b>47%</b><span>мощение</span></div>
+          <div style="border-color:#199e70"><b>13%</b><span>зелень</span></div>
+          <div style="border-color:#3987e5"><b>6%</b><span>вода</span></div>
+          <div style="border-color:#8a8270"><b>4%</b><span>песок</span></div>
+        </div>
+        <p>Город стоит на искусственной платформе примерно на высоте Y 70, на восемь блоков выше моря. Платформа почти точно вписана в квадрат 256 × 256: так выглядела граница мира в Pocket Edition до 2014 года. Город занял весь доступный мир, а когда мир стал бесконечным, вышел за край всего на 10–20 блоков.</p>
+        <p>Главная ось идёт с запада на восток: Белый дом, аллея с фонтанами и офис премьер-министра на краю. Северо-восточный край занимает набережная: суд, дом премьер-министра и заброшенный отель на мысу. Вокзал стоит на северном въезде, завод и гавань на юго-востоке, шпиль на юго-западном углу. Каждой функции нашлось логичное место.</p>
+        <p>Главная особенность в пропорциях. Мощения в полтора раза больше, чем зданий, а зелень собрана в ровные полосы. Поэтому город читается скорее как площадь с павильонами, чем как плотные улицы.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="spots">
+    <p class="eyebrow">Двенадцать мест</p>
+    <h2>Что стоит посмотреть</h2>
+    <figure>
+      <img src="map_landmarks.png" alt="Карта города с номерами двенадцати мест" width="1020" height="990" style="max-width:760px">
+      <figcaption>Нажмите на карточку, и камера наверху перелетит к этому месту. Координаты — как в игре.</figcaption>
+    </figure>
+    <div class="places" id="places"></div>
+  </section>
+
+  <section id="under">
+    <p class="eyebrow">Под землёй</p>
+    <h2>Метро, сокровищница и лестница в глубину</h2>
+    <div class="prose">
+      <p>Под старой частью города спрятано больше 10 тысяч поставленных блоков и почти 10 тысяч блоков выкопанных залов и тоннелей. Включите слой «Под землёй» над моделью: город станет прозрачным, а залы и тоннели подсветятся янтарём.</p>
+      <p>Подземным я считал всё, что ниже уровня моря (Y 62), и закрытые помещения под платформой. Природные пещеры не показаны: в них нет ни одного поставленного блока. Замурованные тайники подсвечены розовым, о них следующий раздел.</p>
+    </div>
+    <div class="places" id="underList"></div>
+  </section>
+
+  <section id="secrets">
+    <p class="eyebrow">Тайники</p>
+    <h2>Замурованные сундуки и колодцы с факелами</h2>
+    <div class="prose">
+      <p>Чтобы найти места, куда нельзя попасть, я разметил весь город от дна мира до неба и для каждой пустой клетки проверил, можно ли дойти до неё с поверхности, не ломая ни одного блока. Всё, до чего дойти нельзя, — замурованное. С сундуками таких мест семь, и ещё восемь замурованных колодцев и комнат с факелами.</p>
+      <p>Слухи подтвердились. Самое богатое хранилище — шесть сундуков в сплошном камне: 1 535 предметов, среди них 149 алмазов, 63 алмазных блока и 255 золотых слитков. Самое глубокое лежит на Y 15 под Белым домом: 90 алмазов и 10 золотых блоков на дне колодца, который сверху закрыт одним булыжником прямо под рельсами метро.</p>
+      <p>В слое «Под землёй» над моделью эти места подсвечены розовым, у каждого розовая метка с номером.</p>
+    </div>
+    <div class="places" id="secretList"></div>
+
+    <h3 class="sub">Откуда факелы, вокруг которых ничего нет</h3>
+    <div class="prose">
+      <p>Ниже уровня моря под старой частью города стоит 194 факела. 174 из них в ходах, куда можно дойти: в метро, на лестнице в глубину и в природных пещерах, которые подсвечивали, пока искали руду. Остальные 20 замурованы, и почти все такие места устроены одинаково: колодец шириной в один блок уходит прямо вниз, а по стенкам стоят факелы. Так копают, когда спускаются за алмазами. Потом над колодцем прошла мостовая, стена дома или путь метро, и вход закрылся.</p>
+      <p>Так что факел посреди камня обычно значит, что рядом был колодец или маленькая выработка, которую потом закрыли. Самые длинные такие колодцы уходят вниз на 56 и на 36 блоков, оба есть в списке выше.</p>
+    </div>
+
+    <h3 class="sub">Во всём остальном мире</h3>
+    <div class="prose">
+      <p>За городом замурованных сундуков с добром нет. Зато нашлись нетронутые сокровища, которые расставила сама игра. Их сундуки ещё ни разу не открывали, поэтому содержимое появится только в момент открытия.</p>
+    </div>
+    <ul class="offices">
+      <li>9 зарытых кладов<span>в каждом обязательно лежит Сердце моря; координаты в таблице</span></li>
+      <li>Крепость Края<span>X −852 · Z −364, портал на Y 26: все 12 рамок на месте, ни одного Ока Края. 10 сундуков не открыты, 3 из них в библиотеках</span></li>
+      <li>26 подводных руин<span>сундуки не открыты, ближайшие у X 427 · Z 436 и X 415 · Z 581</span></li>
+      <li>Затонувший корабль<span>X 870 · Z −278, в том числе сундук с сокровищами</span></li>
+      <li>521 сундук в подземельях<span>со спаунерами чудищ, их тоже никто не открывал</span></li>
+      <li>Остров в 12 км к востоку<span>98 чанков земли у X 12 000–12 650 с деревней, отдельно от остального мира; туда, видимо, телепортировались</span></li>
+    </ul>
+    <div class="tablewrap" style="max-width:560px"><table class="ttable">
+      <thead><tr><th class="num">X</th><th class="num">Y</th><th class="num">Z</th><th class="num">от центра города, блоков</th></tr></thead>
+      <tbody><tr><td class="num">326</td><td class="num">59</td><td class="num">726</td><td class="num">≈ 630</td></tr><tr><td class="num">390</td><td class="num">61</td><td class="num">710</td><td class="num">≈ 640</td></tr><tr><td class="num">-58</td><td class="num">54</td><td class="num">774</td><td class="num">≈ 680</td></tr><tr><td class="num">456</td><td class="num">59</td><td class="num">776</td><td class="num">≈ 730</td></tr><tr><td class="num">-122</td><td class="num">59</td><td class="num">854</td><td class="num">≈ 770</td></tr><tr><td class="num">-234</td><td class="num">59</td><td class="num">982</td><td class="num">≈ 930</td></tr><tr><td class="num">1238</td><td class="num">60</td><td class="num">-122</td><td class="num">≈ 1 140</td></tr><tr><td class="num">-1082</td><td class="num">57</td><td class="num">-506</td><td class="num">≈ 1 370</td></tr><tr><td class="num">-1530</td><td class="num">57</td><td class="num">6</td><td class="num">≈ 1 660</td></tr></tbody>
+    </table></div>
+    <p class="cap" style="margin-top:8px">Зарытые клады. Y — высота самого сундука, обычно на 1–4 блока под песком у берега.</p>
+  </section>
+
+  <section id="materials">
+    <p class="eyebrow">Материалы</p>
+    <h2>Из чего построено</h2>
+    <div class="prose"><p>Доли от 185 тысяч поставленных блоков в черте города. Почти каждый третий блок — алмазный.</p></div>
+    <div class="bars" id="matBars"></div>
+    <div class="callout">В режиме выживания один только алмазный блок обошёлся бы в <b>473 706</b> алмазов, а золото — в <b>142 461</b> слиток. Город почти наверняка строили в творческом режиме: мир помечен как открывавшийся в нём. Сейчас он стоит в режиме выживания.</div>
+  </section>
+
+  <section id="beyond">
+    <p class="eyebrow">За чертой города</p>
+    <h2>Кольцевая дорога и дворец на востоке</h2>
+    <div class="grid2">
+      <div class="prose">
+        <p>Вокруг мира проложено железнодорожное кольцо: прямоугольник примерно 1,6 × 1 км, около 5 км путей. Его строили по расчёту. Через каждые 78 блоков стоят таблички вроде «6 пролётов, 6 блоков», номер участка и координата. На западной и восточной сторонах по 12 участков.</p>
+        <p>В километре к востоку от города, за восточной стороной кольца, стоит большой белый комплекс со стеклянной ареной. Внутри 208 кроватей, расставленных по одной схеме, 829 картин и 438 нотных блоков. Похоже на гостиницу или общежитие примерно на двести мест.</p>
+        <p>На западе стоят высокая кварцевая стена многоугольником, поднятая на 25 блоков над землёй, и золотое здание в форме креста. В остальном это обычный ландшафт.</p>
+      </div>
+      <figure class="photo">
+        <img src="east.jpg" alt="Белый комплекс к востоку от города со стеклянной ареной" width="1600" height="1000">
+        <figcaption>Восточный комплекс: корпуса с внутренним двором и арена под стеклом.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="chrono">
+    <p class="eyebrow">Хронология</p>
+    <h2>Когда что строили</h2>
+    <div class="prose">
+      <p>Порядок, в котором ставились блоки, Minecraft не хранит. Про каждый блок записано только, какой он сейчас: ни даты, ни автора. Поэтому узнать, какой блок в доме поставили первым, а какой последним, нельзя. Зато в мире остались три других следа времени, и вместе они дают довольно подробную картину.</p>
+    </div>
+    <ol class="clues">
+      <li><b>Картины</b>Каждая картина, животное и стойка для брони получают номер, а в него зашит номер запуска мира. Если картина висит на стене, к этому запуску стена уже стояла.</li>
+      <li><b>Карты из игры</b>В мире лежат бумажные карты центра. В номере карты тоже есть номер запуска, а рисунок показывает город таким, каким его видели с картой в руках.</li>
+      <li><b>Блоки-метки</b>Морские фонари, бетон или колокол появились в определённых версиях игры. Дом с ними доделывали не раньше этих дат.</li>
+    </ol>
+
+    <h3 class="sub">Как номер запуска превратить в дату</h3>
+    <div class="prose">
+      <p>Мир открывали 1 963 раза. Номер запуска сам по себе не дата, но животные тоже получают номера, а некоторых животных до определённой версии в игре не было. Первый кролик появился в мире в запуске 82, а кролики пришли в игру 19 ноября 2015 года. Значит, запуск 82 был не раньше этого дня. Таких опорных точек семь, и они ложатся почти на прямую: в 2015–2019 годах мир открывали примерно 1,4 раза в день. Даты между опорами оценены по этой прямой, ошибка может быть в месяц-два.</p>
+    </div>
+    <div class="chartwrap"><svg viewBox="0 0 1000 676" role="img" aria-labelledby="chT chD" xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans, system-ui, sans-serif">
+<title id="chT">Картины в зданиях по номерам запусков мира</title>
+<desc id="chD">Для 16 зданий города и восточного комплекса показано, в каких запусках мира в них вешали картины. Ось — номер запуска от 0 до 1963 с приблизительными годами.</desc>
+<line x1="314.2" x2="314.2" y1="70" y2="618" stroke="#3a4256" stroke-dasharray="3 4"/>
+<text x="319.2" y="658" fill="#ebe6da" font-size="13" font-weight="500">≈ 2016</text>
+<line x1="509.7" x2="509.7" y1="70" y2="618" stroke="#3a4256" stroke-dasharray="3 4"/>
+<text x="514.7" y="658" fill="#ebe6da" font-size="13" font-weight="500">≈ 2017</text>
+<line x1="728.6" x2="728.6" y1="70" y2="618" stroke="#3a4256" stroke-dasharray="3 4"/>
+<text x="733.6" y="658" fill="#ebe6da" font-size="13" font-weight="500">≈ 2018</text>
+<line x1="889.7" x2="889.7" y1="70" y2="618" stroke="#3a4256" stroke-dasharray="3 4"/>
+<text x="894.7" y="658" fill="#ebe6da" font-size="13" font-weight="500">≈ 2019</text>
+<text x="262.0" y="638" fill="#a7a196" font-size="12" text-anchor="start" font-family="IBM Plex Mono, monospace">№0</text>
+<text x="445.9" y="638" fill="#a7a196" font-size="12" text-anchor="middle" font-family="IBM Plex Mono, monospace">№500</text>
+<text x="629.8" y="638" fill="#a7a196" font-size="12" text-anchor="middle" font-family="IBM Plex Mono, monospace">№1000</text>
+<text x="813.7" y="638" fill="#a7a196" font-size="12" text-anchor="middle" font-family="IBM Plex Mono, monospace">№1500</text>
+<text x="984.0" y="638" fill="#a7a196" font-size="12" text-anchor="end" font-family="IBM Plex Mono, monospace">№1963</text>
+<line x1="262" x2="984" y1="618" y2="618" stroke="#3a4256"/>
+<text x="250" y="34" fill="#a7a196" font-size="12.5" text-anchor="end">Первое животное в мире</text>
+<text x="250" y="50" fill="#a7a196" font-size="12.5" text-anchor="end">→ запуск не раньше</text>
+<g class="dot" data-tip="Кролики: впервые в запуске 82. Они появились в версии 0.13.0, 19 ноября 2015, значит этот запуск был не раньше."><line x1="292.2" x2="292.2" y1="30" y2="72" stroke="#6d6a62"/><path d="M287.2 66 L297.2 66 L292.2 74 Z" fill="#ebe6da"/><text x="292.2" y="26" fill="#ebe6da" font-size="12" text-anchor="middle">кролики</text></g>
+<g class="dot" data-tip="Лошади: впервые в запуске 370. Они появились в версии 0.15.0, 13 июня 2016, значит этот запуск был не раньше."><line x1="398.1" x2="398.1" y1="52" y2="72" stroke="#6d6a62"/><path d="M393.1 66 L403.1 66 L398.1 74 Z" fill="#ebe6da"/><text x="398.1" y="48" fill="#ebe6da" font-size="12" text-anchor="middle">лошади</text></g>
+<g class="dot" data-tip="Белые медведи: впервые в запуске 653. Они появились в версии 1.0, 19 декабря 2016, значит этот запуск был не раньше."><line x1="502.2" x2="502.2" y1="30" y2="72" stroke="#6d6a62"/><path d="M497.2 66 L507.2 66 L502.2 74 Z" fill="#ebe6da"/><text x="502.2" y="26" fill="#ebe6da" font-size="12" text-anchor="middle">медведи</text></g>
+<g class="dot" data-tip="Стойки для брони: впервые в запуске 1085. Они появились в версии 1.2, 20 сентября 2017, значит этот запуск был не раньше."><line x1="661.1" x2="661.1" y1="52" y2="72" stroke="#6d6a62"/><path d="M656.1 66 L666.1 66 L661.1 74 Z" fill="#ebe6da"/><text x="661.1" y="48" fill="#ebe6da" font-size="12" text-anchor="middle">стойки</text></g>
+<g class="dot" data-tip="Дельфины: впервые в запуске 1509. Они появились в версии 1.4, 16 мая 2018, значит этот запуск был не раньше."><line x1="817.0" x2="817.0" y1="30" y2="72" stroke="#6d6a62"/><path d="M812.0 66 L822.0 66 L817.0 74 Z" fill="#ebe6da"/><text x="817.0" y="26" fill="#ebe6da" font-size="12" text-anchor="middle">дельфины</text></g>
+<g class="dot" data-tip="Черепахи: впервые в запуске 1561. Они появились в версии 1.5, 10 июля 2018, значит этот запуск был не раньше."><line x1="836.1" x2="836.1" y1="52" y2="72" stroke="#6d6a62"/><path d="M831.1 66 L841.1 66 L836.1 74 Z" fill="#ebe6da"/><text x="836.1" y="48" fill="#ebe6da" font-size="12" text-anchor="middle">черепахи</text></g>
+<g class="dot" data-tip="Странствующий торговец: впервые в запуске 1800. Они появились в версии 1.10, 23 апреля 2019, значит этот запуск был не раньше."><line x1="924.0" x2="924.0" y1="30" y2="72" stroke="#6d6a62"/><path d="M919.0 66 L929.0 66 L924.0 74 Z" fill="#ebe6da"/><text x="924.0" y="26" fill="#ebe6da" font-size="12" text-anchor="middle">торговец</text></g>
+<rect x="0" y="78" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="97.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Алмазный дворец</text>
+<circle class="dot" cx="262.0" cy="93.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 1 картина в запуске 0, примерно сент. 2015"/>
+<circle class="dot" cx="552.2" cy="93.0" r="6.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 10 картин в запуске 789, примерно март 2017"/>
+<circle class="dot" cx="552.6" cy="93.0" r="5.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 6 картин в запуске 790, примерно март 2017"/>
+<circle class="dot" cx="552.9" cy="93.0" r="5.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 6 картин в запуске 791, примерно март 2017"/>
+<circle class="dot" cx="561.0" cy="93.0" r="5.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 5 картин в запуске 813, примерно март 2017"/>
+<circle class="dot" cx="571.3" cy="93.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 4 картины в запуске 841, примерно апр. 2017"/>
+<circle class="dot" cx="571.7" cy="93.0" r="5.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 7 картин в запуске 842, примерно апр. 2017"/>
+<circle class="dot" cx="572.1" cy="93.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 2 картины в запуске 843, примерно апр. 2017"/>
+<circle class="dot" cx="572.4" cy="93.0" r="5.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 5 картин в запуске 844, примерно апр. 2017"/>
+<circle class="dot" cx="626.9" cy="93.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 1 картина в запуске 992, примерно июль 2017"/>
+<circle class="dot" cx="638.6" cy="93.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 1 картина в запуске 1024, примерно авг. 2017"/>
+<circle class="dot" cx="656.7" cy="93.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 1 картина в запуске 1073, примерно сент. 2017"/>
+<circle class="dot" cx="768.1" cy="93.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 1 картина в запуске 1376, примерно март 2018"/>
+<circle class="dot" cx="954.6" cy="93.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Алмазный дворец: 1 картина в запуске 1883, примерно июль 2019"/>
+<text x="250" y="127.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Заброшенный отель на мысу</text>
+<circle class="dot" cx="262.4" cy="123.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Заброшенный отель на мысу: 1 картина в запуске 1, примерно сент. 2015"/>
+<rect x="0" y="138" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="157.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Постройка в зоопарке, X 121 · Z 162</text>
+<circle class="dot" cx="302.1" cy="153.0" r="6.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Постройка в зоопарке, X 121 · Z 162: 11 картин в запуске 109, примерно дек. 2015"/>
+<circle class="dot" cx="517.3" cy="153.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Постройка в зоопарке, X 121 · Z 162: 1 картина в запуске 694, примерно янв. 2017"/>
+<circle class="dot" cx="803.0" cy="153.0" r="7.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Постройка в зоопарке, X 121 · Z 162: 19 картин в запуске 1471, примерно апр. 2018"/>
+<circle class="dot" cx="874.0" cy="153.0" r="8.0" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Постройка в зоопарке, X 121 · Z 162: 22 картины в запуске 1664, примерно нояб. 2018"/>
+<text x="250" y="187.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Суд</text>
+<circle class="dot" cx="333.4" cy="183.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Суд: 1 картина в запуске 194, примерно февр. 2016"/>
+<circle class="dot" cx="333.7" cy="183.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Суд: 3 картины в запуске 195, примерно февр. 2016"/>
+<circle class="dot" cx="715.1" cy="183.0" r="5.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Суд: 6 картин в запуске 1232, примерно дек. 2017"/>
+<circle class="dot" cx="717.7" cy="183.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Суд: 4 картины в запуске 1239, примерно дек. 2017"/>
+<circle class="dot" cx="718.4" cy="183.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Суд: 2 картины в запуске 1241, примерно дек. 2017"/>
+<rect x="0" y="198" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="217.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Дача, X 2 · Z 54</text>
+<circle class="dot" cx="414.3" cy="213.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 1 картина в запуске 414, примерно июль 2016"/>
+<circle class="dot" cx="415.0" cy="213.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 1 картина в запуске 416, примерно июль 2016"/>
+<circle class="dot" cx="415.4" cy="213.0" r="5.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 5 картин в запуске 417, примерно июль 2016"/>
+<circle class="dot" cx="416.5" cy="213.0" r="5.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 5 картин в запуске 420, примерно июль 2016"/>
+<circle class="dot" cx="552.9" cy="213.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 2 картины в запуске 791, примерно март 2017"/>
+<circle class="dot" cx="596.0" cy="213.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 1 картина в запуске 908, примерно май 2017"/>
+<circle class="dot" cx="729.5" cy="213.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 1 картина в запуске 1271, примерно янв. 2018"/>
+<circle class="dot" cx="746.0" cy="213.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 2 картины в запуске 1316, примерно янв. 2018"/>
+<circle class="dot" cx="804.9" cy="213.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дача, X 2 · Z 54: 1 картина в запуске 1476, примерно апр. 2018"/>
+<text x="250" y="247.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Башня DGC на Олимпе</text>
+<circle class="dot" cx="437.8" cy="243.0" r="10.1" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Башня DGC на Олимпе: 42 картины в запуске 478, примерно авг. 2016"/>
+<circle class="dot" cx="708.1" cy="243.0" r="8.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Башня DGC на Олимпе: 24 картины в запуске 1213, примерно нояб. 2017"/>
+<circle class="dot" cx="752.3" cy="243.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Башня DGC на Олимпе: 4 картины в запуске 1333, примерно февр. 2018"/>
+<rect x="0" y="258" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="277.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Дом у вокзала, X 24 · Z 9</text>
+<circle class="dot" cx="451.4" cy="273.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 2 картины в запуске 515, примерно сент. 2016"/>
+<circle class="dot" cx="451.8" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 516, примерно сент. 2016"/>
+<circle class="dot" cx="455.8" cy="273.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 2 картины в запуске 527, примерно сент. 2016"/>
+<circle class="dot" cx="456.2" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 528, примерно сент. 2016"/>
+<circle class="dot" cx="456.6" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 529, примерно сент. 2016"/>
+<circle class="dot" cx="460.6" cy="273.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 2 картины в запуске 540, примерно окт. 2016"/>
+<circle class="dot" cx="467.2" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 558, примерно окт. 2016"/>
+<circle class="dot" cx="472.4" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 572, примерно окт. 2016"/>
+<circle class="dot" cx="473.9" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 576, примерно окт. 2016"/>
+<circle class="dot" cx="474.2" cy="273.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 2 картины в запуске 577, примерно окт. 2016"/>
+<circle class="dot" cx="571.0" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 840, примерно апр. 2017"/>
+<circle class="dot" cx="645.3" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 1042, примерно авг. 2017"/>
+<circle class="dot" cx="736.8" cy="273.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом у вокзала, X 24 · Z 9: 1 картина в запуске 1291, примерно янв. 2018"/>
+<text x="250" y="307.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Офис премьер-министра</text>
+<circle class="dot" cx="487.8" cy="303.0" r="10.0" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 41 картина в запуске 614, примерно нояб. 2016"/>
+<circle class="dot" cx="500.7" cy="303.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 4 картины в запуске 649, примерно дек. 2016"/>
+<circle class="dot" cx="558.8" cy="303.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 4 картины в запуске 807, примерно март 2017"/>
+<circle class="dot" cx="608.8" cy="303.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 3 картины в запуске 943, примерно июнь 2017"/>
+<circle class="dot" cx="619.5" cy="303.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 1 картина в запуске 972, примерно июль 2017"/>
+<circle class="dot" cx="642.3" cy="303.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 3 картины в запуске 1034, примерно авг. 2017"/>
+<circle class="dot" cx="715.5" cy="303.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 1 картина в запуске 1233, примерно дек. 2017"/>
+<circle class="dot" cx="722.1" cy="303.0" r="5.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 5 картин в запуске 1251, примерно дек. 2017"/>
+<circle class="dot" cx="723.2" cy="303.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 2 картины в запуске 1254, примерно дек. 2017"/>
+<circle class="dot" cx="746.0" cy="303.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 1 картина в запуске 1316, примерно янв. 2018"/>
+<circle class="dot" cx="767.4" cy="303.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Офис премьер-министра: 2 картины в запуске 1374, примерно март 2018"/>
+<rect x="0" y="318" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="337.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Корпус у зоопарка, X 100 · Z 185</text>
+<circle class="dot" cx="504.8" cy="333.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Корпус у зоопарка, X 100 · Z 185: 2 картины в запуске 660, примерно дек. 2016"/>
+<circle class="dot" cx="517.3" cy="333.0" r="6.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Корпус у зоопарка, X 100 · Z 185: 14 картин в запуске 694, примерно янв. 2017"/>
+<circle class="dot" cx="629.1" cy="333.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Корпус у зоопарка, X 100 · Z 185: 1 картина в запуске 998, примерно июль 2017"/>
+<circle class="dot" cx="629.8" cy="333.0" r="8.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Корпус у зоопарка, X 100 · Z 185: 24 картины в запуске 1000, примерно июль 2017"/>
+<circle class="dot" cx="654.4" cy="333.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Корпус у зоопарка, X 100 · Z 185: 3 картины в запуске 1067, примерно сент. 2017"/>
+<text x="250" y="367.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Банк</text>
+<circle class="dot" cx="517.6" cy="363.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Банк: 2 картины в запуске 695, примерно янв. 2017"/>
+<circle class="dot" cx="550.7" cy="363.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Банк: 1 картина в запуске 785, примерно март 2017"/>
+<circle class="dot" cx="561.8" cy="363.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Банк: 1 картина в запуске 815, примерно апр. 2017"/>
+<circle class="dot" cx="584.6" cy="363.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Банк: 3 картины в запуске 877, примерно май 2017"/>
+<rect x="0" y="378" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="397.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Дом премьер-министра</text>
+<circle class="dot" cx="525.3" cy="393.0" r="6.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом премьер-министра: 10 картин в запуске 716, примерно янв. 2017"/>
+<circle class="dot" cx="526.1" cy="393.0" r="5.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом премьер-министра: 8 картин в запуске 718, примерно янв. 2017"/>
+<circle class="dot" cx="682.0" cy="393.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом премьер-министра: 1 картина в запуске 1142, примерно окт. 2017"/>
+<circle class="dot" cx="715.1" cy="393.0" r="6.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом премьер-министра: 14 картин в запуске 1232, примерно дек. 2017"/>
+<circle class="dot" cx="785.8" cy="393.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом премьер-министра: 4 картины в запуске 1424, примерно март 2018"/>
+<circle class="dot" cx="816.3" cy="393.0" r="7.5" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Дом премьер-министра: 18 картин в запуске 1507, примерно май 2018"/>
+<text x="250" y="427.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Белый дом</text>
+<circle class="dot" cx="552.2" cy="423.0" r="7.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 16 картин в запуске 789, примерно март 2017"/>
+<circle class="dot" cx="558.8" cy="423.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 4 картины в запуске 807, примерно март 2017"/>
+<circle class="dot" cx="561.0" cy="423.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 2 картины в запуске 813, примерно март 2017"/>
+<circle class="dot" cx="641.2" cy="423.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 1 картина в запуске 1031, примерно авг. 2017"/>
+<circle class="dot" cx="642.3" cy="423.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 2 картины в запуске 1034, примерно авг. 2017"/>
+<circle class="dot" cx="651.9" cy="423.0" r="6.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 10 картин в запуске 1060, примерно сент. 2017"/>
+<circle class="dot" cx="696.4" cy="423.0" r="5.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 5 картин в запуске 1181, примерно нояб. 2017"/>
+<circle class="dot" cx="716.2" cy="423.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 1 картина в запуске 1235, примерно дек. 2017"/>
+<circle class="dot" cx="782.8" cy="423.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 1 картина в запуске 1416, примерно март 2018"/>
+<circle class="dot" cx="816.3" cy="423.0" r="6.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 12 картин в запуске 1507, примерно май 2018"/>
+<circle class="dot" cx="980.3" cy="423.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Белый дом: 1 картина в запуске 1953, примерно окт. 2019"/>
+<rect x="0" y="438" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="457.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Железный дом, X 118 · Z 45</text>
+<circle class="dot" cx="552.2" cy="453.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Железный дом, X 118 · Z 45: 2 картины в запуске 789, примерно март 2017"/>
+<circle class="dot" cx="552.9" cy="453.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Железный дом, X 118 · Z 45: 1 картина в запуске 791, примерно март 2017"/>
+<circle class="dot" cx="553.3" cy="453.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Железный дом, X 118 · Z 45: 1 картина в запуске 792, примерно март 2017"/>
+<circle class="dot" cx="593.4" cy="453.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Железный дом, X 118 · Z 45: 2 картины в запуске 901, примерно май 2017"/>
+<circle class="dot" cx="665.8" cy="453.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Железный дом, X 118 · Z 45: 4 картины в запуске 1098, примерно сент. 2017"/>
+<circle class="dot" cx="692.3" cy="453.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Железный дом, X 118 · Z 45: 1 картина в запуске 1170, примерно нояб. 2017"/>
+<text x="250" y="487.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Золотой дом, X −4 · Z 15</text>
+<circle class="dot" cx="604.1" cy="483.0" r="6.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Золотой дом, X −4 · Z 15: 10 картин в запуске 930, примерно июнь 2017"/>
+<circle class="dot" cx="606.6" cy="483.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Золотой дом, X −4 · Z 15: 2 картины в запуске 937, примерно июнь 2017"/>
+<circle class="dot" cx="638.6" cy="483.0" r="5.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Золотой дом, X −4 · Z 15: 8 картин в запуске 1024, примерно авг. 2017"/>
+<circle class="dot" cx="645.3" cy="483.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Золотой дом, X −4 · Z 15: 4 картины в запуске 1042, примерно авг. 2017"/>
+<circle class="dot" cx="722.1" cy="483.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Золотой дом, X −4 · Z 15: 1 картина в запуске 1251, примерно дек. 2017"/>
+<circle class="dot" cx="834.7" cy="483.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Золотой дом, X −4 · Z 15: 1 картина в запуске 1557, примерно июль 2018"/>
+<rect x="0" y="498" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="517.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Кварцевый дом, X 77 · Z 79</text>
+<circle class="dot" cx="708.5" cy="513.0" r="5.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Кварцевый дом, X 77 · Z 79: 8 картин в запуске 1214, примерно дек. 2017"/>
+<circle class="dot" cx="752.3" cy="513.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Кварцевый дом, X 77 · Z 79: 2 картины в запуске 1333, примерно февр. 2018"/>
+<text x="250" y="547.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Золотой дом, X 101 · Z 95</text>
+<circle class="dot" cx="709.3" cy="543.0" r="7.5" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Золотой дом, X 101 · Z 95: 18 картин в запуске 1216, примерно дек. 2017"/>
+<circle class="dot" cx="721.4" cy="543.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Золотой дом, X 101 · Z 95: 4 картины в запуске 1249, примерно дек. 2017"/>
+<rect x="0" y="558" width="1000" height="30" fill="#1b2130"/>
+<text x="250" y="577.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Стадион</text>
+<circle class="dot" cx="752.3" cy="573.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Стадион: 1 картина в запуске 1333, примерно февр. 2018"/>
+<circle class="dot" cx="813.0" cy="573.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Стадион: 1 картина в запуске 1498, примерно май 2018"/>
+<circle class="dot" cx="813.7" cy="573.0" r="8.5" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Стадион: 26 картин в запуске 1500, примерно май 2018"/>
+<circle class="dot" cx="913.4" cy="573.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Стадион: 1 картина в запуске 1771, примерно март 2019"/>
+<text x="250" y="607.5" fill="#ebe6da" font-size="13.5" text-anchor="end">Восточный комплекс за кольцом</text>
+<circle class="dot" cx="372.7" cy="603.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 2 картины в запуске 301, примерно апр. 2016"/>
+<circle class="dot" cx="373.1" cy="603.0" r="6.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 12 картин в запуске 302, примерно апр. 2016"/>
+<circle class="dot" cx="373.4" cy="603.0" r="7.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 19 картин в запуске 303, примерно апр. 2016"/>
+<circle class="dot" cx="375.7" cy="603.0" r="5.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 7 картин в запуске 309, примерно апр. 2016"/>
+<circle class="dot" cx="376.4" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 311, примерно май 2016"/>
+<circle class="dot" cx="376.8" cy="603.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 4 картины в запуске 312, примерно май 2016"/>
+<circle class="dot" cx="379.0" cy="603.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 4 картины в запуске 318, примерно май 2016"/>
+<circle class="dot" cx="389.3" cy="603.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 4 картины в запуске 346, примерно май 2016"/>
+<circle class="dot" cx="389.6" cy="603.0" r="6.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 10 картин в запуске 347, примерно май 2016"/>
+<circle class="dot" cx="390.4" cy="603.0" r="5.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 6 картин в запуске 349, примерно май 2016"/>
+<circle class="dot" cx="392.9" cy="603.0" r="6.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 10 картин в запуске 356, примерно июнь 2016"/>
+<circle class="dot" cx="396.2" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 365, примерно июнь 2016"/>
+<circle class="dot" cx="397.0" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 367, примерно июнь 2016"/>
+<circle class="dot" cx="397.4" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 368, примерно июнь 2016"/>
+<circle class="dot" cx="397.7" cy="603.0" r="5.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 8 картин в запуске 369, примерно июнь 2016"/>
+<circle class="dot" cx="398.1" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 370, примерно июнь 2016"/>
+<circle class="dot" cx="401.8" cy="603.0" r="9.1" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 32 картины в запуске 380, примерно июнь 2016"/>
+<circle class="dot" cx="402.9" cy="603.0" r="7.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 19 картин в запуске 383, примерно июнь 2016"/>
+<circle class="dot" cx="403.2" cy="603.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 4 картины в запуске 384, примерно июнь 2016"/>
+<circle class="dot" cx="405.4" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 390, примерно июнь 2016"/>
+<circle class="dot" cx="405.8" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 391, примерно июнь 2016"/>
+<circle class="dot" cx="406.2" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 392, примерно июнь 2016"/>
+<circle class="dot" cx="406.9" cy="603.0" r="6.0" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 9 картин в запуске 394, примерно июнь 2016"/>
+<circle class="dot" cx="407.7" cy="603.0" r="6.0" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 9 картин в запуске 396, примерно июнь 2016"/>
+<circle class="dot" cx="408.4" cy="603.0" r="6.0" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 9 картин в запуске 398, примерно июль 2016"/>
+<circle class="dot" cx="408.8" cy="603.0" r="12.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 73 картины в запуске 399, примерно июль 2016"/>
+<circle class="dot" cx="424.6" cy="603.0" r="7.5" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 18 картин в запуске 442, примерно июль 2016"/>
+<circle class="dot" cx="425.3" cy="603.0" r="8.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 27 картин в запуске 444, примерно авг. 2016"/>
+<circle class="dot" cx="425.7" cy="603.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 2 картины в запуске 445, примерно авг. 2016"/>
+<circle class="dot" cx="426.0" cy="603.0" r="6.7" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 13 картин в запуске 446, примерно авг. 2016"/>
+<circle class="dot" cx="426.4" cy="603.0" r="5.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 6 картин в запуске 447, примерно авг. 2016"/>
+<circle class="dot" cx="427.1" cy="603.0" r="7.1" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 15 картин в запуске 449, примерно авг. 2016"/>
+<circle class="dot" cx="427.5" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 450, примерно авг. 2016"/>
+<circle class="dot" cx="428.6" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 453, примерно авг. 2016"/>
+<circle class="dot" cx="434.5" cy="603.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 4 картины в запуске 469, примерно авг. 2016"/>
+<circle class="dot" cx="440.4" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 485, примерно авг. 2016"/>
+<circle class="dot" cx="445.5" cy="603.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 4 картины в запуске 499, примерно сент. 2016"/>
+<circle class="dot" cx="445.9" cy="603.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 2 картины в запуске 500, примерно сент. 2016"/>
+<circle class="dot" cx="447.0" cy="603.0" r="5.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 7 картин в запуске 503, примерно сент. 2016"/>
+<circle class="dot" cx="465.0" cy="603.0" r="6.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 10 картин в запуске 552, примерно окт. 2016"/>
+<circle class="dot" cx="477.5" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 586, примерно нояб. 2016"/>
+<circle class="dot" cx="479.0" cy="603.0" r="9.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 35 картин в запуске 590, примерно нояб. 2016"/>
+<circle class="dot" cx="505.5" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 662, примерно дек. 2016"/>
+<circle class="dot" cx="510.3" cy="603.0" r="13.7" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 93 картины в запуске 675, примерно янв. 2017"/>
+<circle class="dot" cx="510.6" cy="603.0" r="14.4" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 106 картин в запуске 676, примерно янв. 2017"/>
+<circle class="dot" cx="511.0" cy="603.0" r="14.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 115 картин в запуске 677, примерно янв. 2017"/>
+<circle class="dot" cx="516.2" cy="603.0" r="6.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 12 картин в запуске 691, примерно янв. 2017"/>
+<circle class="dot" cx="516.9" cy="603.0" r="5.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 7 картин в запуске 693, примерно янв. 2017"/>
+<circle class="dot" cx="564.3" cy="603.0" r="7.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 19 картин в запуске 822, примерно апр. 2017"/>
+<circle class="dot" cx="564.7" cy="603.0" r="5.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 8 картин в запуске 823, примерно апр. 2017"/>
+<circle class="dot" cx="565.4" cy="603.0" r="4.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 2 картины в запуске 825, примерно апр. 2017"/>
+<circle class="dot" cx="565.8" cy="603.0" r="4.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 3 картины в запуске 826, примерно апр. 2017"/>
+<circle class="dot" cx="566.2" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 827, примерно апр. 2017"/>
+<circle class="dot" cx="566.9" cy="603.0" r="5.6" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 7 картин в запуске 829, примерно апр. 2017"/>
+<circle class="dot" cx="725.1" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 1259, примерно дек. 2017"/>
+<circle class="dot" cx="725.4" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 1260, примерно дек. 2017"/>
+<circle class="dot" cx="725.8" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 1261, примерно дек. 2017"/>
+<circle class="dot" cx="756.0" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 1343, примерно февр. 2018"/>
+<circle class="dot" cx="761.8" cy="603.0" r="5.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 5 картин в запуске 1359, примерно февр. 2018"/>
+<circle class="dot" cx="762.6" cy="603.0" r="6.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 14 картин в запуске 1361, примерно февр. 2018"/>
+<circle class="dot" cx="763.3" cy="603.0" r="5.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 8 картин в запуске 1363, примерно февр. 2018"/>
+<circle class="dot" cx="764.8" cy="603.0" r="5.2" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 5 картин в запуске 1367, примерно февр. 2018"/>
+<circle class="dot" cx="767.7" cy="603.0" r="4.9" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 4 картины в запуске 1375, примерно март 2018"/>
+<circle class="dot" cx="944.3" cy="603.0" r="3.8" fill="#f2b24c" stroke="#171c28" stroke-width="1.5" data-tip="Восточный комплекс за кольцом: 1 картина в запуске 1855, примерно июнь 2019"/>
+</svg></div>
+    <p class="cap">Каждая точка — картины, повешенные в одном запуске: чем больше точка, тем больше картин. Наведите на точку, чтобы увидеть число и примерную дату. В таблице ниже то же самое словами.</p>
+    <div class="tablewrap"><table class="ctable">
+      <thead><tr><th>Здание</th><th>По памяти автора</th><th>Уже стояло к запуску</th><th class="num">Картин тогда</th><th>Потом вешали ещё</th><th>Доделывали не раньше (блоки-метки)</th></tr></thead>
+      <tbody><tr><td>Алмазный дворец</td><td>2014</td><td>№0 · ≈ 2015 или раньше</td><td class="num">1</td><td>≈ март 2017–апр. 2017: 45 картин</td><td>сентябрь 2017: флаги</td></tr><tr><td>Заброшенный отель на мысу</td><td>—</td><td>№1 · ≈ 2015 или раньше</td><td class="num">1</td><td>—</td><td>только старые материалы</td></tr><tr><td>Постройка в зоопарке, X 121 · Z 162</td><td>—</td><td>№109 · ≈ дек. 2015</td><td class="num">11</td><td>≈ апр. 2018: 19 картин; ≈ нояб. 2018: 22 картины</td><td>только старые материалы</td></tr><tr><td>Суд</td><td>февраль 2016</td><td>№194 · ≈ февр. 2016</td><td class="num">4</td><td>≈ дек. 2017: 12 картин</td><td>ноябрь 2015: железные двери, редстоун-лампы</td></tr><tr><td>Дача, X 2 · Z 54</td><td>—</td><td>№414 · ≈ июль 2016</td><td class="num">12</td><td>—</td><td>февраль 2016: рамки</td></tr><tr><td>Башня DGC на Олимпе</td><td>лето 2016</td><td>№478 · ≈ авг. 2016</td><td class="num">42</td><td>≈ нояб. 2017: 24 картины; ≈ февр. 2018: 4 картины</td><td>только старые материалы</td></tr><tr><td>Дом у вокзала, X 24 · Z 9</td><td>сентябрь 2016</td><td>№515 · ≈ сент. 2016</td><td class="num">14</td><td>—</td><td>ноябрь 2015: железные двери, нотные блоки, редстоун-лампы</td></tr><tr><td>Офис премьер-министра</td><td>2016</td><td>№614 · ≈ нояб. 2016</td><td class="num">45</td><td>≈ март 2017: 4 картины; ≈ июнь 2017–июль 2017: 4 картины; ≈ дек. 2017: 8 картин</td><td>апрель 2019: колокол</td></tr><tr><td>Корпус у зоопарка, X 100 · Z 185</td><td>—</td><td>№660 · ≈ дек. 2016</td><td class="num">16</td><td>≈ июль 2017: 25 картин</td><td>ноябрь 2015: железные двери, нотные блоки</td></tr><tr><td>Банк</td><td>—</td><td>№695 · ≈ янв. 2017</td><td class="num">2</td><td>—</td><td>сентябрь 2017: флаги</td></tr><tr><td>Дом премьер-министра</td><td>—</td><td>№716 · ≈ янв. 2017</td><td class="num">18</td><td>≈ дек. 2017: 14 картин; ≈ март 2018: 4 картины; ≈ май 2018: 18 картин</td><td>октябрь 2016: морские фонари</td></tr><tr><td>Белый дом</td><td>2014; две перестройки в 2016</td><td>№789 · ≈ март 2017</td><td class="num">22</td><td>≈ авг. 2017–сент. 2017: 13 картин; ≈ нояб. 2017–дек. 2017: 6 картин; ≈ май 2018: 12 картин</td><td>март 2019: фонари</td></tr><tr><td>Железный дом, X 118 · Z 45</td><td>—</td><td>№789 · ≈ март 2017</td><td class="num">4</td><td>≈ сент. 2017: 4 картины</td><td>июнь 2017: глазурованная керамика</td></tr><tr><td>Золотой дом, X −4 · Z 15</td><td>—</td><td>№930 · ≈ июнь 2017</td><td class="num">12</td><td>≈ авг. 2017: 12 картин</td><td>июнь 2017: сухой бетон</td></tr><tr><td>Кварцевый дом, X 77 · Z 79</td><td>—</td><td>№1214 · ≈ дек. 2017</td><td class="num">8</td><td>—</td><td>сентябрь 2017: флаги</td></tr><tr><td>Золотой дом, X 101 · Z 95</td><td>—</td><td>№1216 · ≈ дек. 2017</td><td class="num">22</td><td>—</td><td>октябрь 2016: морские фонари</td></tr><tr><td>Стадион</td><td>май 2014; перестройки 2016 и ≈ 2019</td><td>№1333 · ≈ февр. 2018</td><td class="num">1</td><td>≈ май 2018: 27 картин</td><td>март 2019: кафедры</td></tr><tr><td>Восточный комплекс за кольцом</td><td>—</td><td>№301 · ≈ апр. 2016</td><td class="num">412</td><td>≈ дек. 2016–янв. 2017: 336 картин; ≈ апр. 2017: 40 картин; ≈ февр. 2018–март 2018: 37 картин</td><td>—</td></tr></tbody>
+    </table></div>
+    <div class="prose" style="margin-top:22px">
+      <p>Там, где вы помните даты, картины с ними сходятся. Суд построен в феврале 2016 года, и по картинам выходит зима 2015/16. Олимп с башней DGC делали летом 2016-го, по картинам август 2016-го. Дом у вокзала — сентябрь 2016 года, и по картинам тоже сентябрь. Значит, шкала запусков работает, и ей можно верить там, где памяти не хватает.</p>
+      <p>Раньше 2015 года картины не заглядывают: счётчик запусков начинается позже. Поэтому стадион, бассейн и отель (май 2014), Алмазный дворец (2014) и первая постройка — алмазная башня «Биг Бен» — по картинам не датируются. В стадионе картины появились только в 2018 году, а кафедры в правительственной ложе не раньше марта 2019-го. Это следы его перестроек, а не постройки: стадион стоит с мая 2014 года. Офис премьер-министра вы помните 2016 годом, и картины в нём появляются в ноябре 2016-го.</p>
+      <p>Дальше по картинам порядок такой. К концу 2015 года уже был зоопарк: первые кролики мира появились именно в его вольерах. Зимой 2015/16 стоял суд, летом 2016-го — дача у X 2 · Z 54 и Олимп с башней DGC, осенью — дом у вокзала и офис премьер-министра. Зимой 2016/17 обставили корпус у зоопарка, банк и дом премьер-министра, весной 2017-го — Белый дом.</p>
+      <p>Картины дают оценку «не позже», а сам дом может быть старше. Дом премьер-министра виден уже на карте весны 2016 года, хотя картины в нём появились только через год.</p>
+      <p>Восточный комплекс за кольцом обставляли с весны 2016 года, а больше трёхсот картин повесили за три запуска подряд, с 675-го по 677-й. По оценке это начало января 2017 года, новогодние каникулы.</p>
+    </div>
+
+    <h3 class="sub">Что ещё видно по запускам</h3>
+    <div class="prose"><p>Номера запусков есть не только у картин. Их получают игроки, животные и даже выброшенные предметы, и по ним видно, как жил мир.</p></div>
+    <ul class="offices">
+      <li>≈ 500–600 запусков в год<span>в 2016–2018 годах мир открывали почти каждый день. С апреля 2019 года до июня 2026-го — около 160 раз</span></li>
+      <li>13 игроков с датой первого входа<span>от запуска 3 (≈ осень 2015) до запуска 1 855 (≈ июнь 2019). Ещё 26 записей старого формата, без номера: это игроки до входа через Xbox</span></li>
+      <li>Двое пришли вместе<span>в запуске 990, ≈ июль 2017: два новых игрока впервые вошли в одной и той же игре</span></li>
+      <li>Самое большое путешествие<span>23–24 ноября 2017 года, запуски 1 200 и 1 202. В мире появилось 590 существ, почти все — кальмары и рыбы от X −250 до X 1 340 и от Z −1 000 до Z 900. Кто-то летал или плыл далеко над морем</span></li>
+      <li>Экспедиция на север<span>первые белые медведи родились в запуске 653, ≈ декабрь 2016, у X 990 · Z 980: туда дошли до ледяных земель</span></li>
+      <li>Первые приручённые<span>лошадь в запуске 653, волки и ещё одна лошадь в запуске 809, ≈ март 2017</span></li>
+      <li>Горы с ламами<span>запуск 1 140, ≈ июнь 2017, у X 830–890 · Z 900–1 060</span></li>
+      <li>Дальняя деревня<span>жители у X −360 · Z 1 380 впервые записаны в запуске 1 712, ≈ январь 2019</span></li>
+      <li>Новогодние каникулы 2017<span>запуски 675–677 — 314 картин в восточном комплексе за три игры подряд</span></li>
+    </ul>
+
+    <h3 class="sub">Карты, нарисованные в игре</h3>
+    <div class="prose"><p>Самый наглядный след — бумажные карты. В мире сохранились четыре карты одного и того же квадрата 128 × 128 блоков в центре города. Карту создают в каком-то запуске, а рисунок на ней дорисовывается, пока с ней ходят. Последней для сравнения стоит картинка того, что там сейчас.</p></div>
+    <div class="maps"><figure><img src="m258.png" alt="Карта центра города: Запуск 258 · ≈ март 2016" width="512" height="512" loading="lazy"><figcaption><b>Запуск 258 · ≈ март 2016</b>Дворцы уже стоят, но вокруг ещё трава и песок, платформа вымощена не вся.</figcaption></figure><figure><img src="m644.png" alt="Карта центра города: Запуск 644 · ≈ дек. 2016" width="512" height="512" loading="lazy"><figcaption><b>Запуск 644 · ≈ дек. 2016</b>Мостовой стало больше. Справа внизу ещё пляж и вода.</figcaption></figure><figure><img src="m1358.png" alt="Карта центра города: Запуск 1 358 · ≈ февр. 2018" width="512" height="512" loading="lazy"><figcaption><b>Запуск 1 358 · ≈ февр. 2018</b>Всё вымощено. На месте тёмного квадрата стоит белый дворец, справа появились белые дома.</figcaption></figure><figure><img src="m1606.png" alt="Карта центра города: Запуск 1 606 · ≈ сент. 2018" width="512" height="512" loading="lazy"><figcaption><b>Запуск 1 606 · ≈ сент. 2018</b>Почти так же, как сейчас.</figcaption></figure><figure><img src="mnow.png" alt="Карта центра города: Сейчас" width="512" height="512" loading="lazy"><figcaption><b>Сейчас</b>Тот же квадрат в нашем рендере. Цвета немного другие, чем на карте из игры.</figcaption></figure></div>
+    <div class="side">
+      <figure><img src="mbridge.png" alt="Карта из игры: море и мост через него в 500 блоках к востоку от города" width="512" height="512" loading="lazy"></figure>
+      <div class="prose"><p>Ещё одна карта того же 258-го запуска показывает море в 500 блоках к востоку от центра, и через него уже идёт мост. Значит, к весне 2016 года мир давно был бесконечным, а восточный мост уже построили.</p></div>
+    </div>
+
+    <h3 class="sub">Блоки-метки: когда здание перестраивали в последний раз</h3>
+    <div class="grid2">
+      <figure>
+        <img src="map_chrono.png" alt="Карта города: здания раскрашены по дате самого нового блока внутри" width="1020" height="990">
+        <ul class="legend">
+          <li><i style="background:#6b5530"></i>только блоки 2013–2014 · 16</li>
+          <li><i style="background:#94702f"></i>последние правки 2015 – начало 2016 · 11</li>
+          <li><i style="background:#c08d32"></i>последние правки в конце 2016 · 4</li>
+          <li><i style="background:#e6ad42"></i>последние правки в 2017 · 10</li>
+          <li><i style="background:#ffd98a"></i>последние правки в 2019 · 7</li>
+        </ul>
+        <figcaption>Цвет — дата самого нового блока в каждой из 48 построек, то есть последней перестройки. Построено здание может быть намного раньше. Число — сколько таких построек.</figcaption>
+      </figure>
+      <div class="prose">
+        <p>Каждый блок появился в своей версии игры, и по ним можно датировать, как в археологии. Если в здании стоят морские фонари, его доделывали или перестраивали не раньше октября 2016 года, когда они появились. Сам корпус при этом может быть старше: башня DGC сложена только из старых материалов, а картины в ней висят с лета 2016 года.</p>
+        <p>16 построек сложены только из того, что было в игре уже в 2013–2014 годах: кварц, алмаз, золото, светокамень, рельсы. Среди них алмазный корпус на мысу и башня с надписью DGC. Остальное достраивали волнами: лампы и железные двери в 2015–2016, морские фонари с конца 2016, бетон, цветное стекло и флаги в 2017, кафедры, фонари и колокол в 2019.</p>
+        <p>Важно: метка говорит только о последней правке. Стадион на карте жёлтый, потому что в 2019 году в него поставили кафедры, а построен он в мае 2014-го. Так же отель у стадиона (2014, перестроен около 2019-го) и Белый дом (2014, перестроен в 2016-м). Ниже даты, которые вы назвали сами.</p>
+        <table>
+          <thead><tr><th>Здание</th><th>Построено</th><th>Перестройки</th></tr></thead>
+          <tbody>
+            <tr><td>«Биг Бен», первая постройка</td><td>до 2014, из камня</td><td>начало 2014: стал алмазным</td></tr>
+            <tr><td>Стадион</td><td>май 2014</td><td>2016, ≈ 2019</td></tr>
+            <tr><td>Бассейн за стадионом</td><td>май 2014</td><td>—</td></tr>
+            <tr><td>Отель у стадиона</td><td>2014</td><td>≈ 2019</td></tr>
+            <tr><td>Белый дом</td><td>2014</td><td>две в 2016</td></tr>
+            <tr><td>Алмазный дворец</td><td>2014</td><td>—</td></tr>
+            <tr><td>Суд</td><td>февраль 2016</td><td>—</td></tr>
+            <tr><td>Олимп с башней DGC</td><td>лето 2016</td><td>—</td></tr>
+            <tr><td>Офис премьер-министра</td><td>2016</td><td>—</td></tr>
+            <tr><td>Дом у вокзала</td><td>сентябрь 2016</td><td>—</td></tr>
+          </tbody>
+        </table>
+        <p>Ролевую жизнь можно датировать отдельно. 29 игроков сохранены в режиме приключений, а он появился в версии 1.1 в июне 2017 года. Значит, магазин, банк и правительство работали не раньше середины 2017-го.</p>
+        <table>
+          <thead><tr><th>Блоки-метки</th><th>Версия</th><th class="num">Появились</th></tr></thead>
+          <tbody>
+            <tr><td>Кварц</td><td>0.6</td><td class="num">2013</td></tr>
+            <tr><td>Рельсы и электрорельсы</td><td>0.8</td><td class="num">дек. 2013</td></tr>
+            <tr><td>Изумрудный блок</td><td>0.9</td><td class="num">2014</td></tr>
+            <tr><td>Блок редстоуна</td><td>0.11</td><td class="num">июнь 2015</td></tr>
+            <tr><td>Лампы, нотные блоки, железные двери</td><td>0.13</td><td class="num">нояб. 2015</td></tr>
+            <tr><td>Рамки, воронки, выбрасыватели</td><td>0.14</td><td class="num">февр. 2016</td></tr>
+            <tr><td>Морские фонари</td><td>0.16</td><td class="num">окт. 2016</td></tr>
+            <tr><td>Бетон, глазурованная керамика</td><td>1.1</td><td class="num">июнь 2017</td></tr>
+            <tr><td>Цветное стекло, флаги</td><td>1.2</td><td class="num">сент. 2017</td></tr>
+            <tr><td>Ступени из гладкого кварца</td><td>1.9</td><td class="num">февр. 2019</td></tr>
+            <tr><td>Фонари, кафедры</td><td>1.10</td><td class="num">март 2019</td></tr>
+            <tr><td>Колокол</td><td>1.11</td><td class="num">апр. 2019</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h3 class="sub">Когда создан мир</h3>
+    <div class="prose"><p>Дату создания мира Bedrock не записывает, поэтому ответ собирается из нескольких следов.</p></div>
+    <ol class="timeline">
+      <li><b>2013–2014</b><span>Мир создан ещё в старом формате. В его настройках до сих пор лежат поля ограниченного мира 256 × 256 с центром в точке X 128 · Z 128. Город построен ровно в этом квадрате, потому что дальше тогда было не пройти.</span></li>
+      <li><b>начало 2014</b><span>Первая постройка — башня «Биг Бен». Сначала она была каменной, в начале 2014 года стала алмазной.</span></li>
+      <li><b>май 2014</b><span>Стадион, бассейн за ним и отель рядом. В том же году — Алмазный дворец, резиденция президента в дачном районе.</span></li>
+      <li><b>≈ конец 2014 – 2015</b><span>Мир переведён в бесконечный формат. Его база нумерует свои файлы по порядку: к июню 2016 года номер дошёл до 9 338, к июню 2017-го — до 16 044, это около 6 700 файлов в год. Если считать назад, база началась примерно на рубеже 2014 и 2015 годов.</span></li>
+      <li><b>≈ 2015</b><span>Начинается счётчик запусков. Самые старые картины висят в Алмазном дворце и в заброшенном отеле на мысу.</span></li>
+      <li><b>2016</b><span>Две перестройки Белого дома и стадиона, суд в феврале, Олимп с башней DGC летом, офис премьер-министра и дом у вокзала осенью.</span></li>
+      <li><b>весна 2016</b><span>На карте из игры уже есть мост через море в 500 блоках к востоку, далеко за старой границей мира.</span></li>
+      <li><b>2016–2018</b><span>Самые активные годы: около полутора тысяч запусков, почти все картины в городе, восточный комплекс, а с середины 2017-го ролевая жизнь с магазином, банком и правительством.</span></li>
+      <li><b>2019</b><span>Последние новые блоки в городе: кафедры, фонари, колокол. К апрелю 2019 года набралось около 1 800 запусков.</span></li>
+      <li><b>2019–2026</b><span>Ещё около 160 запусков за семь лет.</span></li>
+      <li><b>15 июня 2026</b><span>Последний, 1 963-й запуск перед этим разбором.</span></li>
+    </ol>
+
+    <h3 class="sub">Когда мир открывали</h3>
+    <div class="prose"><p>Каждый файл мира помнит дату своего последнего изменения. Новые сессии затирают старые даты, поэтому ниже только те дни, которые уцелели.</p></div>
+    <ol class="timeline" id="sessions"></ol>
+  </section>
+
+  <section id="history">
+    <p class="eyebrow">Слои сохранения</p>
+    <h2>Какие участки мира и когда перезаписывались</h2>
+    <div class="prose"><p>Игра хранит каждый чанк в формате той версии, которая последней его сохранила. Это не точная дата правки, но по формату видно, где жизнь шла дольше. Весь город сохранён форматом 1.18, то есть его открывали уже после 2021 года. А 62 чанка далеко на востоке не перезаписывались с 2014–2016 годов.</p></div>
+    <div class="bars" id="eraBars"></div>
+  </section>
+
+  <section id="players">
+    <p class="eyebrow">Игроки</p>
+    <h2>Кто здесь был</h2>
+    <div class="grid2">
+      <div class="prose">
+        <p>Имён и времени входа игра не записывает. Зато для каждого, кто заходил, она хранит запись: где он был в момент выхода, в каком режиме играл и что лежало в инвентаре. Таких записей 39, у 34 есть координаты.</p>
+        <p>31 запись старого образца из эпохи Pocket Edition и 3 новых. 29 игроков вышли в режиме приключений: ломать и ставить блоки они не могли, только жить в городе. Шестеро ходили в полном алмазном доспехе, у одного с собой было 386 алмазов.</p>
+        <p>Одна запись принадлежит владельцу этого iPad: творческий режим, элитры и 127 фейерверков, последний выход у банка.</p>
+        <p>Кнопка «Игроки» над моделью показывает, где каждый вышел из игры.</p>
+      </div>
+      <div class="book">
+        <h3>«Инсткрукция»</h3>
+        <p class="sig">Книга из сундука в банке, автор DoctorTima</p>
+        <ol>
+          <li>Прежде чем зайти в магазин в магазин напишите сообщение в чате «иду в магазин»</li>
+          <li>После того как войдёте в магазин идти к Кассе 1</li>
+          <li>Сделать заказ в чате «1 хлеб и 2 сырые курицы»</li>
+          <li>После заказа продавец вам озвучит цену вашего заказа</li>
+          <li>Опустить изумруды в воронку под вами</li>
+          <li>Идти к Кассе 2</li>
+          <li>Вставать под выбрасыватель и ждать ваш заказ в вашем инвентаре</li>
+        </ol>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table class="ptable" id="ptable">
+        <thead><tr><th class="num">№</th><th>Где вышел из игры</th><th>Режим</th><th>Что было с собой</th><th>Доспех, кровать</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="facts">
+    <p class="eyebrow">Цифры и странности</p>
+    <h2>Что ещё нашлось в файлах</h2>
+    <div class="prose"><p>Мелочи, которые не видно, если просто ходить по миру: настройки, счётчики и предметы, которые где-то остались.</p></div>
+    <div class="stats"><div class="stat"><div class="n">1 233</div><div class="l">игровых суток проработал мир</div><div class="s">по счётчику тиков. А часы мира показывают только 107-е сутки: время часто стояло или его переводили</div></div><div class="stat"><div class="n">0</div><div class="l">чанков в Нижнем мире и в Крае</div><div class="s">туда не ходили ни разу, порталов в мире нет</div></div><div class="stat"><div class="n">363</div><div class="l">изумруда лежат на земле</div><div class="s">у восточного комплекса, X 1 340 · Z 500, вместе с 64 рамками портала Края, 64 книжными полками и 64 картинами</div></div><div class="stat"><div class="n">1</div><div class="l">командный блок</div><div class="s">в железной башне у X 77 · Z 162, на Y 102. В нём опечатка «/give @a commadblock», так что он ничего не выдал</div></div><div class="stat"><div class="n">473 706</div><div class="l">алмазов в стенах</div><div class="s">столько дают 52 634 алмазных блока. В сундуках города всего 2 085 алмазов</div></div><div class="stat"><div class="n">1 773</div><div class="l">буханки хлеба</div><div class="s">можно купить в магазине при банке на изумруды из 1 971 изумрудного блока города</div></div><div class="stat"><div class="n">1 517</div><div class="l">картин</div><div class="s">чаще всего висят «Странник» (208) и «Грэм» (207), обе узкие и вертикальные</div></div><div class="stat"><div class="n">253</div><div class="l">кровати из 299 красные</div><div class="s">в самом городе около 40 кроватей, ещё 208 стоят в восточном комплексе</div></div><div class="stat"><div class="n">19</div><div class="l">часов на стенах</div><div class="s">все в рамках в восточном комплексе</div></div><div class="stat"><div class="n">3</div><div class="l">стража в доспехах</div><div class="s">две стойки у дома премьер-министра и одна у колокола в офисе премьер-министра. На двух полная алмазная броня и изумруд в руке, на третьей вместо нагрудника элитры</div></div><div class="stat"><div class="n">630</div><div class="l">нотных блоков</div><div class="s">438 из них в восточном комплексе</div></div><div class="stat"><div class="n">мирная</div><div class="l">сложность</div><div class="s">монстров нет, погода выключена, мобы не ломают блоки</div></div></div>
+  </section>
+
+  <section id="review">
+    <p class="eyebrow">Оценка</p>
+    <h2>Что получилось, что нет и что бы я поменял</h2>
+    <div class="verdict">
+      <div class="panel">
+        <h3>Сильное</h3>
+        <ul>
+          <li>Город работает как система: Белый дом, суд, банк с магазином, завод, вокзал, гавань, стадион и зоопарк. И каждая функция стоит там, где ей место.</li>
+          <li>Набережная собрана как фасад к морю: суд, дом премьер-министра и отель на мысу читаются с воды одной панорамой.</li>
+          <li>Шпиль на углу — правильная доминанта. Его видно отовсюду, и он не спорит с дворцами.</li>
+          <li>Инженерный подход: кольцевая дорога размечена табличками с номерами участков и пролётами.</li>
+          <li>Ночь продумана: купола и контуры из светокамня, фонари вдоль набережной.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Слабое</h3>
+        <ul>
+          <li>Мощения 47%, зелени 13%. Деревья почти все одной формы и стоят рядами.</li>
+          <li>Почти 40% блоков — алмаз и золото. Когда дорого всё, ничего не выделяется.</li>
+          <li>Самые эффектные дворцы пустые внутри. Жизнь шла в менее заметных домах.</li>
+          <li>Высоты ровные: медиана 16 блоков, девять зданий из десяти ниже 25. Силуэт держит только шпиль.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Что бы я поменял</h3>
+        <ul>
+          <li>Подпорные стены и склоны Олимпа перевести из алмаза в серый камень и природную скалу. Драгоценности оставить на дворцах.</li>
+          <li>Не застраивать площади: в старом городе главное — сады и деревья разных форм. Большой город строить на другом берегу.</li>
+          <li>Открыть дворцы: интерьеры или хотя бы светящиеся окна.</li>
+          <li>Достроить шпиль, а у гавани поставить тонкую световую иглу в его стиле.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="future">
+    <p class="eyebrow">Предложение · версия 4</p>
+    <h2>Как развивать старый город</h2>
+    <div class="prose">
+      <p>Старый город не застраиваем: новый большой город будет на другом берегу. Здесь задача сделать ландшафт благороднее и дать каждому месту назначение. Четвёртая версия собрана по вашим замечаниям к третьей. Исторический центр восстановлен блок в блок: Алмазный и Золотой дома, парламент и железный дом у зоопарка. Железная дорога сохранена целиком и над склоном Олимпа поднята на виадук. Олимп получил настилы и лаунж на вершине, а буквы DGC стали почти вчетверо выше.</p>
+      <p>Во всех парках один набор: ваша акация, ваш фонарь из чёрного стекла с кварцем и современная скамья. Деревьев на дорожках нет. В 3D наверху страницы кнопка «Проект» показывает новый город, у каждого пункта ниже есть кнопка «Показать в 3D».</p>
+    </div>
+    <div class="stats"><div class="stat"><div class="n">13,1% → 22,9%</div><div class="l">зелени</div><div class="s">газоны, склоны, парки и деревья</div></div><div class="stat"><div class="n">47% → 38,7%</div><div class="l">мощения</div><div class="s">площади и проходы остаются</div></div><div class="stat"><div class="n">0</div><div class="l">домов центра перестроено</div><div class="s">Алмазный и Золотой дома, парламент, железный дом у зоопарка</div></div><div class="stat"><div class="n">1 462</div><div class="l">блока рельсов на месте</div><div class="s">99 блоков пути подняты на виадук</div></div><div class="stat"><div class="n">7 → 26</div><div class="l">высота букв DGC</div><div class="s">в блоках; видно с моря и с другого берега</div></div><div class="stat"><div class="n">+108</div><div class="l">деревьев</div><div class="s">акаций 68, больших дубов 21, дубов 12, берёз 7</div></div></div>
+
+    <h3 class="sub">План: сейчас и после</h3>
+    <div class="compare px" style="--cut:50%">
+      <img src="plan_now2.png" alt="План города сейчас, вид сверху" width="1020" height="990" loading="lazy">
+      <div class="after"><img src="plan_proj4.png" alt="План города после предложенных изменений, вид сверху" width="1020" height="990" loading="lazy"></div>
+      <span class="ppin" style="left:38.24%;top:77.58%">1</span><span class="ppin" style="left:41.47%;top:84.85%">2</span><span class="ppin" style="left:41.47%;top:67.88%">3</span><span class="ppin" style="left:38.82%;top:72.73%">4</span><span class="ppin" style="left:46.18%;top:63.64%">5</span><span class="ppin" style="left:58.24%;top:27.27%">6</span><span class="ppin" style="left:64.71%;top:32.73%">7</span><span class="ppin" style="left:45.88%;top:16.36%">8</span><span class="ppin" style="left:28.24%;top:24.55%">9</span><span class="ppin" style="left:25.00%;top:78.48%">10</span><span class="ppin" style="left:16.18%;top:80.30%">11</span><span class="ppin" style="left:92.65%;top:57.58%">12</span><span class="ppin" style="left:37.65%;top:46.06%">13</span><span class="ppin" style="left:15.00%;top:84.85%">14</span><span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+    <p class="cap" style="margin-top:8px">Потяните разделитель: слева город сейчас, справа предложение. Номера те же, что в списке ниже.</p>
+
+    <h3 class="sub">Четырнадцать пунктов</h3>
+    <div class="places" id="projList"></div>
+
+    <h3 class="sub">С птичьего полёта</h3>
+    <div class="compare " style="--cut:50%">
+      <img src="air4_now.jpg" alt="Город с птичьего полёта сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="air4_proj.jpg" alt="Город с птичьего полёта после изменений: DGC на Олимпе, отель-каскад, Тиволи" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+
+    <h3 class="sub">Олимп и DGC</h3>
+    <div class="compare " style="--cut:50%">
+      <img src="olymp4_now.jpg" alt="Олимп с моря сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="olymp4_proj.jpg" alt="Олимп с моря после: буквы DGC на склоне, лаунж на вершине" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+    <div class="ba">
+      <div class="compare " style="--cut:50%">
+      <img src="olympe4_now.jpg" alt="Олимп со стороны зоопарка сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="olympe4_proj.jpg" alt="Олимп со стороны зоопарка после: настил, виадук, буквы" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+      <div class="compare " style="--cut:50%">
+      <img src="fpark4_now.jpg" alt="Парк у шпиля и склон Олимпа сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="fpark4_proj.jpg" alt="Парк у шпиля после: аллея, ступени к воде, пологий склон" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+    </div>
+
+    <h3 class="sub">Зоопарк</h3>
+    <div class="ba">
+      <div class="compare " style="--cut:50%">
+      <img src="zoo4_now.jpg" alt="Зоопарк сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="zoo4_proj.jpg" alt="Зоопарк после: мощёная дорожка, вольеры, пруд" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+      <div class="compare " style="--cut:50%">
+      <img src="zootop4_now.jpg" alt="Зоопарк сверху сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="zootop4_proj.jpg" alt="Зоопарк сверху после: вольеры с лошадьми, овцами и кроликами" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+    </div>
+
+    <h3 class="sub">Мыс, отель и набережная</h3>
+    <div class="compare " style="--cut:50%">
+      <img src="cape4_now.jpg" alt="Мыс сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="cape4_proj.jpg" alt="Мыс после: площадь Парламента с бассейном, рощей акаций и башней; отель-каскад" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+    <div class="compare " style="--cut:50%">
+      <img src="hotel4_now.jpg" alt="Старый отель над пляжем" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="hotel4_proj.jpg" alt="Отель «Каскад»: террасы к пляжу, водный каскад, пляжная палуба и набережная от суда" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+
+    <h3 class="sub">Парки и площади</h3>
+    <div class="compare " style="--cut:50%">
+      <img src="station4_now.jpg" alt="Сквер у вокзала с полем фонарей" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="station4_proj.jpg" alt="Новый вокзальный парк: аллея, ручей, пергола, большие дубы" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+    <div class="ba">
+      <div class="compare " style="--cut:50%">
+      <img src="spire4_now.jpg" alt="Шпиль и площадь сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="spire4_proj.jpg" alt="Площадь у шпиля: лучи в мощении, лаунж-палуба, склон к воде" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+      <div class="compare " style="--cut:50%">
+      <img src="east4_now.jpg" alt="Луг за офисом премьер-министра сейчас" width="1600" height="1000" loading="lazy">
+      <div class="after"><img src="east4_proj.jpg" alt="Тиволи: колесо обозрения, карусель, кафе и сад" width="1600" height="1000" loading="lazy"></div>
+      <span class="bar"></span><span class="knob" aria-hidden="true">⇆</span>
+      <span class="lab l">Сейчас</span><span class="lab r">Проект</span>
+      <input type="range" min="0" max="100" value="50" aria-label="Сравнение: сдвиньте, чтобы увидеть сейчас или проект">
+    </div>
+    </div>
+
+    <h3 class="sub">Правила для старого города</h3>
+    <ul class="rules">
+      <li>Исторический центр не перестраиваем: дома остаются блок в блок, работаем только с ландшафтом вокруг.</li>
+      <li>Железная дорога сохраняется целиком. Где под ней меняется рельеф, путь идёт по виадуку.</li>
+      <li>У каждого места есть назначение: площадь, парк, вольер, смотровая, аттракционы.</li>
+      <li>Один набор для всего города: акация, ваш фонарь из чёрного стекла с кварцем и современная скамья. Ни одного дерева на дорожке.</li>
+      <li>Вертикали в языке шпиля: тонкие кварцевые линии, без светящихся блоков.</li>
+      <li>Набережная по всему контуру одна: плита, каменная стенка, еловое ограждение, редкие фонари.</li>
+      <li>Обрывов к воде нет: город спускается к морю склоном или ступенями.</li>
+    </ul>
+
+    <h3 class="sub">Аналоги</h3>
+    <ul class="offices"><li><a href="https://www.wikiwand.com/en/Hollywood_sign" target="_blank" rel="noopener">Hollywood Sign</a><span>белые буквы на южном склоне чуть ниже вершины, по горизонтали склона — образ для DGC</span></li><li><a href="https://www.dezeen.com/2012/07/07/trollstigen-by-reiulf-ramstad-architects/" target="_blank" rel="noopener">Trollstigen, Reiulf Ramstad</a><span>тропы и смотровые площадки из стали и стекла над скалой — настилы и палуба на Олимпе</span></li><li><a href="https://dac.dk/en/knowledgebase/architecture/vm-bjerget-2" target="_blank" rel="noopener">Mountain Dwellings, BIG</a><span>дом-гора, где крыша нижней квартиры — сад верхней; террасы из дерева — отель «Каскад»</span></li><li><a href="https://dac.dk/en/knowledgebase/architecture/tivoli-part-of-the-national-identity" target="_blank" rel="noopener">Tivoli, Копенгаген</a><span>романтический сад с лёгкими павильонами, видами и подсветкой — парк развлечений за офисом</span></li><li><a href="https://www.dezeen.com/2012/10/24/superkilen-park-by-big-topotek1-and-superflex/" target="_blank" rel="noopener">Superkilen, BIG + Topotek 1 + Superflex</a><span>одна площадь из разных зон, белые линии в мощении — площадь у шпиля</span></li><li><a href="https://dac.dk/en/knowledgebase/architecture/koebenhavn-zoo" target="_blank" rel="noopener">Copenhagen Zoo</a><span>вольеры как природные ландшафты, вода и рельеф вместо решёток</span></li><li><a href="https://landezine-award.com/aker-brygge-the-city-floor/" target="_blank" rel="noopener">Aker Brygge, Осло</a><span>набережная из камня и дерева одним языком по всему берегу</span></li></ul>
+  </section>
+</main>
+
+<footer>
+  Собрано из файлов мира DoctorCity: база LevelDB, таблички, сундуки и счётчики из level.dat. Текстуры — стандартные Bedrock. Подсчёты блоков и долей территории сделаны автоматически и могут расходиться с игрой на единицы процентов.
+</footer>
+
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script type="importmap">
+{ "imports": { "three": "./js/three.module.min.js", "three/addons/": "./js/addons/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+const LM = [{"name": "Стадион", "x": 34, "z": 101, "y": 82, "d": 70, "tag": "спорт", "text": "Овальный стадион под стеклом с флагом на крыше. Построен в мае 2014 года, перестраивался в 2016-м и около 2019-го. В нём правительственная ложа: четыре кафедры с табличками премьер-министра и министров, над ними табличка президента. Рядом отель того же времени и бассейн за стадионом.", "top": 83, "ground": 83, "date": "построен в мае 2014; кафедры не раньше марта 2019 — это последняя перестройка"}, {"name": "Банк", "x": 18, "z": 177, "y": 88, "d": 60, "tag": "экономика", "text": "Кредит под 15%, страховка и хранение инвентаря по 24 изумруда в месяц. В этом же здании продуктовый магазин с ценами в изумрудах: хлеб 10, молоко 6, борщ 15.", "top": 102, "ground": 90, "date": "не раньше сентября 2017: флаги"}, {"name": "Шпиль", "x": 14, "z": 236, "y": 105, "d": 120, "tag": "доминанта", "text": "Самая высокая точка города: Y 143, на 73 блока выше платформы. Шпиль не достроен: рёбра обрываются на вершине. Рядом арсенал с «военными пакетами» для императора, премьер-министра, министров и главного инженера.", "top": 143, "ground": 79, "date": "не раньше февраля 2019: ступени из гладкого кварца"}, {"name": "Завод", "x": 157, "z": 208, "y": 76, "d": 55, "tag": "производство", "text": "Бывший завод: 24 печи и табличка у входа «Стоимость входа на завод — 3 стака».", "top": 82, "ground": 82, "date": "не раньше октября 2016: морские фонари"}, {"name": "Суд", "x": 179, "z": 89, "y": 78, "d": 75, "tag": "власть", "text": "Золото и светокамень, четыре купола. Построен около февраля 2016 года. Главная открытка набережной, при этом внутри всего два сундука.", "top": 85, "ground": 83, "date": "февраль 2016, по воспоминаниям автора"}, {"name": "Дом премьер-министра", "x": 146, "z": 81, "y": 88, "d": 65, "tag": "набережная", "text": "Больше 1 700 изумрудных блоков на щипцах и башенках. Внутри ни сундука, ни кровати, ни печи.", "top": 104, "ground": 96, "date": "не раньше октября 2016: морские фонари"}, {"name": "Заброшенный отель на мысу", "x": 165, "z": 52, "y": 74, "d": 70, "tag": "набережная", "text": "3 900 алмазных блоков и светокамень. Задумывался как отель, но так и остался коробкой без отделки.", "top": 84, "ground": 84, "date": "только старые материалы: мог стоять с 2013–2014"}, {"name": "Аллея у Белого дома", "x": 190, "z": 131, "y": 72, "d": 95, "tag": "ось", "text": "Аллея от Белого дома к офису премьер-министра, между ними фонтаны из синего стекла и ряды деревьев.", "top": 74, "ground": 70, "date": "офис премьер-министра построен в 2016, колокол не раньше апреля 2019"}, {"name": "Вокзал", "x": 57, "z": 2, "y": 76, "d": 75, "tag": "транспорт", "text": "Двухпутная эстакада уходит на север и вливается в железнодорожное кольцо вокруг всего мира.", "top": 82, "ground": 81, "date": "не раньше сентября 2017: цветное стекло"}, {"name": "Башня DGC на Олимпе", "x": 102, "z": 239, "y": 84, "d": 60, "tag": "подпись", "text": "Башня с надписью «DGC» светокамнем на восточном фасаде стоит на холме Олимп с огромной лестницей. Холм построили летом 2016 года.", "top": 98, "ground": 91, "date": "лето 2016, по воспоминаниям автора"}, {"name": "Гавань и мост в X-Сити", "x": 205, "z": 215, "y": 70, "d": 110, "tag": "транспорт", "text": "Гавань с пирсом и башенкой на воде. Мост уходит на восток, в X-Сити, и примерно через 600 блоков встречает кольцевую дорогу.", "top": 63, "ground": 63, "date": "мост выходит за старую границу мира, значит построен после того, как мир стал бесконечным"}, {"name": "Алмазный дворец", "x": 26, "z": 47, "y": 84, "d": 60, "tag": "резиденция", "text": "Резиденция президента в дачном районе, построена в 2014 году. Самый обжитой дом города: 52 сундука, 9 печей и единственный стол зачарований.", "top": 90, "ground": 90, "date": "2014, по воспоминаниям автора"}, {"name": "Белый дом", "x": 145, "z": 130, "y": 80, "d": 70, "tag": "власть", "text": "Главное правительственное здание, из кварца, в начале аллеи. Первая версия 2014 года, две перестройки в 2016-м. Под ним на глубине 55 блоков замурован тайник с 90 алмазами.", "top": 88, "ground": 70, "date": "2014; перестройки в 2016, по воспоминаниям автора"}, {"name": "Зоопарк", "x": 117, "z": 172, "y": 70, "d": 60, "tag": "отдых", "text": "Вольеры с овцами, лошадьми, кроликами и коровой в низине между корпусами. Первые кролики мира появились именно здесь, значит, зоопарк был уже к концу 2015 года.", "top": 74, "ground": 67, "date": "не позже ноября–декабря 2015: кролики"}, {"name": "Отель у стадиона", "x": 11, "z": 135, "y": 78, "d": 60, "tag": "жильё", "text": "Отель рядом со стадионом, построен в 2014 году вместе с ним и перестроен около 2019-го. На дверях номеров таблички с именами игроков.", "top": 94, "ground": 70, "date": "2014, перестроен ≈ 2019, по воспоминаниям автора"}, {"name": "Офис премьер-министра", "x": 227, "z": 132, "y": 78, "d": 60, "tag": "власть", "text": "Алмазный павильон в конце аллеи, напротив Белого дома. Построен в 2016 году; колокол и стражи в доспехах у входа появились позже.", "top": 85, "ground": 66, "date": "2016, по воспоминаниям автора; колокол не раньше апреля 2019"}];
+const SW = {"diamond_block": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABaklEQVR4XnWTvU6EQBSFLz8i7AYiGhv7bSxsjZ29pc+gtc+xr2DivouFBhObTewtdBu1cYMghGDOHQ47EPckZJjLnHvvfMw4F1+rVix9r800iZ0+yhjFb08vr+IjON/fk2OJ9Psi/dTx1Jn2hizN9f2xKHW8mRzoeC5iEsB8/fOmwWkQy5UfSNZuTKvS67pwtfptUOkaSBNQY/Oy2RERU5Vtz5KJzlnAx/7QNswnXi1ZW+sCmPNqrdWho7DRNRDiEoXDDmCm/jOfqaFWDki6+KjktyzERWs2MNO2YYGqeIzZQNzwMBowoLlvs0u0bEzb3I7NxAUDANlmtpNR6Bqd7YaRuH20kwLqKo/NMEH8E5Am4AGhGXsGVM5tXaaGEbajEDmxzTYw7hsjYdqJBxC30/a0bRsmGWgCgJwl8WCBfamwmFXZEQ+VJgDV5/e8O6489yZOcOMTCUZ3ZSHO4f2D3l8AwW/hOzWOjed/+7vgOfqnwMwAAAAASUVORK5CYII=", "quartz_block": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAA0klEQVR4XqVT0QrDMAh0YFgf+v8fORhlJbAUhQ3TGIy122AHfWlyp+eZy7rcX/AHULhMGwCXQYaZD7I4zcO/nG+7gJIjkgARAXAaBbkAEQFK9bCakCrbEF2X9VhlO6Ghi3LuZ75QSgkQ0/WjBRU+tWeNRV655MG77ZSe1Cz4AXUf5WDNY+ggSiMcpkEYYxibR0tkF2gWNLkQXOIU4ts/LNc0Ay0PNwNHFCvySYRnsxhmUPntDVhCaE1noKv8rZLtTlE3UV6UQJbCHgCs4XjkAVm8AQVpdTA8wRX/AAAAAElFTkSuQmCC", "stone_slab": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABMElEQVR4XmWTQYqEMBBFM6CNIIKL3vXKO3g/z9iHcOdCEKHRxQwvwws1mYLuxKRS9f/Pz9eyLN/neaa+7xPBnHi9Xnlc1/XfN7njOKZ931PDgXme033fqW3bnNx1XR6JaZrS5/MpxZ/PZ56b2/DB4eu68u/xeJRirMcQpQG6hsVhGMricRylOl0iGpFYGJoNXOoN6ZhoEUf3MwL+5Ckvw28aSBOKUCVA3wBDBBEuVKTGvsUYnXMBf0RkwQ6MFFHYKLCFMwLuEgoEnUAh5NiNudzNQ7/sAylYJEakVXskG8nkWnl94U2IIOZlBJojilR3FVn0BTnbtv36IDouXqWmch9UCl2srIgKVxeLaKKQRHlMdPKB1NZV8SiwTbIP0OD9fpfnS1UCagZrPnMdyD5nfwCuh/+bC44xBwAAAABJRU5ErkJggg==", "iron_block": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAuElEQVR4XrWTQQrDIBBFpyBiNiFZNDmH9z9E6NpDJAQxImLLCAZjnJbS5m2U4evM9+PtMU3PZV0B6do2rhRJl0A9w6KU8nTGObfXQgjgvYf7OB50SilgWNFav+1MYa0FtswzGGNIEWOxR6TU2W0D1vU9DMNQvSC3gXvO+UEnmuY3CwhpIR+9Nj5yspCPnEi1cnzkWgs5VBJfpYCUSVxv4VMSpIUyDSqJ/1jAx8FfVQM/S8xbiH1f8gLJ1XpwFAnkmQAAAABJRU5ErkJggg==", "gold_block": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABZ0lEQVR4XoVTQUrDUBCdhGDaNFAKAVeCLkQ3LjyCO9fewmN4BY/gKdx1X7xAFd1IF4VKENKQQCEyb2Z+p4nig5LMn3mTN29+o+3LRUcOyfcO0W6ahFM7M1juYzEhVGXX99TFV8hHX494Hs1u9m3LubxvSsmd30m8eJIGTI6WDzjrRhlFJ7fkSXW1PlA2/nyWGiJpYOiTu6qlSJMme1ycyYmqSng+lg1ynoYEyE2Nr2PM/Bg1GLOpibjWKwBZ8RuZipmo2ZQy0mpFbZNQDGnOMCabF/xV/jEZMLJuauiBkoNMNZV64zDMkxjdynn48oBsMzswmZWlownFPvEfGeMQ7TdBpA30gsBdBhuWp/vYITu9RMRGts1WGnDgyd4wWyOeamao7V+kv9yuaQ3Zfr3iQSU3kY3siuzAbf+nwuw6nimSS6UNsJL3t7CaAVnHZNiNZI/Yg+R1OUWCA16LvRtYppzJicQV6hk/XPLap49/T90AAAAASUVORK5CYII=", "cobblestone": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABbklEQVR4XmWTMW7CQBBFx9aWRO5xRLpQkS4oHMA38AV8AHIsV24tEfkApA4VdCCF3gq9ozfSR5vNSLbWs3/+zPwZZ+/b7fRzu1lVVYZ1XWdFUfgZH+dxHO1yvtjxdLTl89JWL6u7L1cwQEDr17Vf1nX9JxjDD8nh62Cf+737cn+buXPxtLDr9fseiA/S1A/JfF46NmuaZoKA0nBQUfwtIH4wkKkdKgq8HsvyX3/DMHgA2TBaAotBgnGX9X0/fex29rbZeOmUjakagtAFi8XjnupyABzIKB0wfA+zmZOSiQBNQ+QQBvrBAHMhEygeG0nAQa5pBAHVo8Yj0ciitqQJwVRDbACoYFUj5eOKCCK7JoSQVBRgRUQFqTwtDgkI5OFMZk2BxCHtWZkgkupkEiET0arTmmsQg9GATPHI+CekjbZWca5BDFYL8cg0VoK0WNrcrG1bX2UEFKsmo5HFi0U1WmUspCubkqT/B/1LRO5+Afg6iQSxRytzAAAAAElFTkSuQmCC", "glass": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAjklEQVR4XmO88OrlfwYywY1nHxhYQHo3TJvOSI4ZGgGR/5nQNQZkZRLtosv37jGgGADSTKpr4AaAnEOqZhCAG3Bjw3KSw0FAWAzVC6SCD29fUWYAxS5ACQNyAUY6IBVQbgAoPZMKkFMrk4aUAEn60VMryS5ATq2y/DwMjCsu3ARnnscfv4AFQDQxAKQWBADuoTMddP/GVQAAAABJRU5ErkJggg==", "glowstone": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB/UlEQVR4Xk2TTUhUURTHz3s+EGlhFH4lSBAKISg4ECOuBKGFMETMxoW0Cxl3OX7N3mGaXuJGF+7ShQulKAp05SoIKcHAQAfBVaWi6EIkevrkd4bzuHf37j3nf/4f53n/9/PxztqhbGztyvHlP+EM9/dId/ahcM9Z3tyWxju1UvjwS+SiIj8WClpf03xX/KDxpRY/fdKpxUFdICvffkp54kvS3PKoqfp+UdE7q/9zcCTezLPHMY9MofD677kWwQYwTsOD+3Ly+1Siq0jC+efKzOq90khvDBLNA22tCXWTBEj4cU+iyrhM5T8pCId6ZUwzRTSnpleVZirHU0GnlMKM3iF1KH2o8mA0WXon0fGi+JTe82t0smnkgW+Mgy7fZpw1S327MvDGMh2x0TL3OaYTEPODZjzCMwbkR9+LR4xvZ78mJtFgpiINcPSOverTZIgOEEAZ6MXn+zEU7RFPADm7uU4mWv7UMRVgvAna31Q9gC5TQZ5bXZeJ8qAMpbtUipu/LRZSYE0y3vdiNrbI3A3kzvbB7mHp+qEJEpXlSpMtCCyI7vXUC71zl4vUbGt99JhJts5sHc1EhXkwMOBw6bOCIxeDffRQhCGpXFE94IHJaLQfjUHUAQq4DdNV1i3MFdVl98+0GE2i7YC75poC6+k2EyFMiIpIAUIWBiLFNfIWBPhdv7vYxDoAAAAASUVORK5CYII=", "stone_stairs": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABbklEQVR4XmWTMW7CQBBFx9aWRO5xRLpQkS4oHMA38AV8AHIsV24tEfkApA4VdCCF3gq9ozfSR5vNSLbWs3/+zPwZZ+/b7fRzu1lVVYZ1XWdFUfgZH+dxHO1yvtjxdLTl89JWL6u7L1cwQEDr17Vf1nX9JxjDD8nh62Cf+737cn+buXPxtLDr9fseiA/S1A/JfF46NmuaZoKA0nBQUfwtIH4wkKkdKgq8HsvyX3/DMHgA2TBaAotBgnGX9X0/fex29rbZeOmUjakagtAFi8XjnupyABzIKB0wfA+zmZOSiQBNQ+QQBvrBAHMhEygeG0nAQa5pBAHVo8Yj0ciitqQJwVRDbACoYFUj5eOKCCK7JoSQVBRgRUQFqTwtDgkI5OFMZk2BxCHtWZkgkupkEiET0arTmmsQg9GATPHI+CekjbZWca5BDFYL8cg0VoK0WNrcrG1bX2UEFKsmo5HFi0U1WmUspCubkqT/B/1LRO5+Afg6iQSxRytzAAAAAElFTkSuQmCC", "seaLantern": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAChUlEQVR4XiWTW3MdNRCEvxlpL2djjOMYCiemcMo4pELxaP5Ifg7FM/w6HnjgZgPBlXLC5SSOc453V1ppKMlv0mqmp7unV55//43lnDGMoe24nUZc09Z7XhJ92xFywtJC6xtCDBjCTtuTBbwTYyHx+ZNnHO3tMqXMl0efMW22fPrxJ4S4sN6+RwDfNrz4928u/3vN7+fnpJzwMUaePH3Gw/37nD0+5UPXkkVo739EzoZ0PQ+GAQWmlHi48wG2LHAqnP/6M74UHe0fcHZ8Qu86VJXBO0S1NoGgCIul+jbGwNenT7GLX/gpRHzfr3h0b5eh6WhF6dsGbEbMyAhmhimVTeM6LLdIipwcPkJ8h1dtkL4cjL5MJtS5ra4wtTud4gmMYAt915LmzDSFylDHeYOkjNNCVMAyje8wMSwLYr6ooHUrRAwyiBRmwpIS2vgVh/sH1FWW/gpzV5ByxGwhJSNbpiy7+IDB4d4eq/5euQtOpD7ccSiNqQIV/WWaqFQWKq7mo5zjPIMkNIbA+vY9lotphllGpUAV1xvAVepqSl6Wu9WKsB63YIaW9G3fbZhi0Vzxictci7wTRHKlPKdbRAsYxLTQ9S3jNOJrMBtPJBNTwrkGlURIU/XEoVguIArqiBkaUeaxSHD4EGZe3rzhwWog9x17/VAnee0oo4sPSFlYJmVlCiM3c+Dyel3CgS+xvFz/Q1oiZ8df8DZM7HoPpKqxJLIwyKJ4Mda3Iz9e/cXV9RsKRW+qvPjtAjk94YeXf3KzuUFE+er4MQfDTnX+etowzYGmbTh/dcXrd2/54+KCVd8iz7/71sbiaHFKwTeeJZZMKJILfcO58i0wrAYo/8O4ZVjtEJfI/2mvW6OT0sMOAAAAAElFTkSuQmCC", "emerald_block": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABSElEQVR4Xp1TsUoDQRR8l9NOSHeXWKSwEQUVC3sFU6XwOyQ/4g+I/kDagIUgWJjGWsLBSQikCIgmnWB7RmZ237J32UvhNHu8vXkzb3Y3Sl8vV/JPxItv2QK3f3q91uKleJeL+MCtwO3nI9fDZI/rdDAwDbj5drfWJJcRVfJ0VNqbjDPZ716xxgZQY+fjc6oqUM+XsxIZ6pPnB1djA5CghjXkRAE30jX28e9UHVThZ6LuQLh/uqGj2OaxXR3BhxLdCElF5mvOQiNEUvh51KGUQTW8XGYCJXMSc1pXZWl1RLIP40DthsDgABACcCNQxR4ZrOtlKdKmFCdHjoqjJmwGHEGTBdAIafNbaYtscwZQw4z9dk+k3TNX1iooVNmJ2QwiPqZWR+JxvUoIuMqlt4BZXVCq7gfn1eBYb2K0OzxbNZY/tTNuwm+yI3+aaI1aOpa9rgAAAABJRU5ErkJggg=="};
+const PLAYERS = [{"n": 1, "fmt": "old", "x": 163, "y": 72, "z": 76, "place": "у места «Дом премьер-министра»", "mode": "приключения", "inv": ["алмазы: 35", "палки: 1", "алмазный меч: 1"], "armor": "полный алмазный доспех", "bed": null, "total": 32, "local": false}, {"n": 2, "fmt": "old", "x": 104, "y": 72, "z": 187, "place": "в городе", "mode": "приключения", "inv": ["брёвна: 3"], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 3, "fmt": "old", "x": 127, "y": 72, "z": 149, "place": "в городе", "mode": "приключения", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 4, "fmt": "old", "x": 4, "y": 76, "z": 50, "place": "у места «Алмазный дворец»", "mode": "приключения", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 5, "fmt": "old", "x": 29, "y": 94, "z": 182, "place": "у места «Банк»", "mode": "приключения", "inv": ["булыжник: 5", "земля: 1"], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 6, "fmt": "old", "x": 20, "y": 71, "z": 64, "place": "у места «Алмазный дворец»", "mode": "приключения", "inv": ["палки: 1"], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 7, "fmt": "old", "x": 15, "y": 82, "z": 162, "place": "у места «Банк»", "mode": "приключения", "inv": ["динамит: 64", "палки: 4", "доски: 2"], "armor": "", "bed": null, "total": 62, "local": false}, {"n": 8, "fmt": "old", "x": 66, "y": 74, "z": 9, "place": "у места «Вокзал»", "mode": "приключения", "inv": ["алмазные блоки: 1"], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 9, "fmt": "old", "x": 105, "y": 87, "z": 150, "place": "в городе", "mode": "приключения", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 10, "fmt": "old", "x": 10, "y": 84, "z": 152, "place": "у места «Банк»", "mode": "приключения", "inv": ["стрелы: 68", "земля: 35", "обсидиан: 32"], "armor": "полный алмазный доспех", "bed": "X 77 · Y 106 · Z 162", "total": 242, "local": false}, {"n": 11, "fmt": "old", "x": 75, "y": 84, "z": 73, "place": "в городе", "mode": "приключения", "inv": ["земля: 6"], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 12, "fmt": "old", "x": 90, "y": 93, "z": 182, "place": "в городе", "mode": "приключения", "inv": ["факелы: 5", "булыжник: 5", "земля: 5"], "armor": "", "bed": null, "total": 22, "local": false}, {"n": 13, "fmt": "old", "x": 25, "y": 71, "z": 61, "place": "у места «Алмазный дворец»", "mode": "приключения", "inv": ["доски: 128", "двери: 65", "булыжник: 64"], "armor": "", "bed": null, "total": 568, "local": false}, {"n": 14, "fmt": "old", "x": 21, "y": 75, "z": 137, "place": "у места «Стадион»", "mode": "приключения", "inv": ["рельсы: 64", "стекло: 64", "доски: 62"], "armor": "", "bed": null, "total": 302, "local": false}, {"n": 15, "fmt": "old", "x": 49, "y": 79, "z": 205, "place": "у места «Банк»", "mode": "приключения", "inv": ["снежки: 2", "алмазный меч: 1"], "armor": "полный алмазный доспех", "bed": "X 32 · Y 82 · Z 188", "total": 0, "local": false}, {"n": 16, "fmt": "old", "x": 31, "y": 74, "z": 107, "place": "у места «Стадион»", "mode": "приключения", "inv": ["земля: 251", "булыжник: 64", "палки: 6"], "armor": "", "bed": null, "total": 318, "local": false}, {"n": 17, "fmt": "old", "x": 48, "y": 74, "z": 60, "place": "у места «Алмазный дворец»", "mode": "приключения", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 18, "fmt": "old", "x": 145, "y": 73, "z": 118, "place": "у места «Дом премьер-министра»", "mode": "приключения", "inv": ["алмазы: 386", "земля: 64", "алмазные блоки: 18"], "armor": "полный алмазный доспех", "bed": null, "total": 483, "local": false}, {"n": 19, "fmt": "old", "x": 54, "y": 74, "z": 63, "place": "у места «Алмазный дворец»", "mode": "приключения", "inv": ["земля: 3"], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 20, "fmt": "old", "x": 81, "y": 89, "z": 171, "place": "в городе", "mode": "приключения", "inv": ["булыжник: 8", "забор: 2", "алмазные блоки: 1"], "armor": "полный алмазный доспех", "bed": null, "total": 9, "local": false}, {"n": 21, "fmt": "old", "x": 117, "y": 87, "z": 70, "place": "у места «Дом премьер-министра»", "mode": "приключения", "inv": ["алмазные блоки: 64", "сырая свинина: 63", "алмазы: 14"], "armor": "полный алмазный доспех", "bed": null, "total": 156, "local": false}, {"n": 22, "fmt": "old", "x": 28, "y": 83, "z": 171, "place": "у места «Банк»", "mode": "приключения", "inv": ["стрелы: 2", "кости: 1"], "armor": "", "bed": null, "total": 1, "local": false}, {"n": 23, "fmt": "old", "x": 28, "y": 71, "z": 60, "place": "у места «Алмазный дворец»", "mode": "приключения", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 24, "fmt": "old", "x": 34, "y": 81, "z": 54, "place": "у места «Алмазный дворец»", "mode": "приключения", "inv": ["морковь: 7", "семена: 3", "краситель: 2"], "armor": "", "bed": null, "total": 12, "local": false}, {"n": 25, "fmt": "old", "x": 146, "y": 85, "z": 178, "place": "у места «Завод»", "mode": "приключения", "inv": ["доски: 128", "камень: 64", "булыжник: 64"], "armor": "", "bed": null, "total": 504, "local": false}, {"n": 26, "fmt": "old", "x": -509, "y": 66, "z": 709, "place": "далеко за городом", "mode": "приключения", "inv": ["доски: 128", "бетон: 35", "камень: 16"], "armor": "", "bed": null, "total": 199, "local": false}, {"n": 27, "fmt": "old", "x": 135, "y": 77, "z": 154, "place": "в городе", "mode": "творческий", "inv": ["огниво: 1", "алмазный меч: 1"], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 28, "fmt": "old", "x": -272, "y": 74, "z": 252, "place": "далеко за городом", "mode": "творческий", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 29, "fmt": "old", "x": 188, "y": 73, "z": 144, "place": "у места «Аллея у Белого дома»", "mode": "приключения", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 30, "fmt": "old", "x": 64, "y": 74, "z": 69, "place": "у места «Стадион»", "mode": "приключения", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 31, "fmt": "old", "x": 92, "y": 87, "z": 138, "place": "в городе", "mode": "приключения", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 32, "fmt": "new", "x": 155, "y": 80, "z": 143, "place": "у места «Аллея у Белого дома»", "mode": "творческий", "inv": ["изумруды: 163", "стеклянные панели: 128", "кварц: 83"], "armor": "черепаший шлем", "bed": "X 114 · Y 90 · Z 51", "total": 906, "local": false}, {"n": 33, "fmt": "new", "x": 73, "y": 88, "z": 169, "place": "в городе", "mode": "по умолчанию", "inv": [], "armor": "", "bed": null, "total": 0, "local": false}, {"n": 34, "fmt": "new", "x": 45, "y": 84, "z": 162, "place": "у места «Банк»", "mode": "творческий", "inv": ["каменные кнопки: 128", "железные двери: 128", "фейерверки: 127"], "armor": "элитры", "bed": null, "total": 1480, "local": true}];
+const UND = [{"k": "A", "name": "Метро", "x": 110, "y": 54, "z": 120, "d": 170, "text": "Около 600 блоков путей на 10–20 блоков ниже уровня моря (Y 42–65). Три ветки: под стадионом, под центральной осью и под аллеей у Белого дома."}, {"k": "B", "name": "Сокровищница", "x": 24, "y": 69, "z": 47, "d": 45, "text": "Подвал Алмазного дворца: 85 книжных полок, 31 сундук и стол зачарований. В одном из сундуков 1 600 золотых слитков."}, {"k": "C", "name": "Золотой зал", "x": 174, "y": 68, "z": 89, "d": 55, "text": "Зал под Золотым дворцом, обшитый 1 111 золотыми блоками. Внутри пусто."}, {"k": "D", "name": "Железный бункер", "x": 160, "y": 62, "z": 203, "d": 50, "text": "Под заводом: 860 железных блоков, железные двери, высота около 15 блоков."}, {"k": "E", "name": "Лестница в глубину", "x": 166, "y": 34, "z": 176, "d": 130, "text": "Наклонный тоннель шириной 4 блока и длиной почти 160: с уровня моря вниз до Y 7."}, {"k": "F", "name": "Шахта с лестницами", "x": 75, "y": 40, "z": 124, "d": 95, "text": "Колодцы с лестницами и рельсами уходят вниз до Y 11. Рядом 7 сундуков."}];
+const SEC = [{"k": "1", "name": "Казна в стене тоннеля", "x": 97, "y": 75, "z": 139, "d": 40, "text": "Шесть сундуков в сплошном камне под маленькой алмазной башней, на Y 74–77. Хода к ним нет, но рядом идёт железная дорога: от рельсов на Y 76 сундуки отделяет один блок камня.", "loot": "1 535 предметов: 255 золотых и 223 железных слитка, 149 алмазов, 63 алмазных блока, 147 стрел, 90 факелов, 256 камня"}, {"k": "2", "name": "Сундук с алмазными блоками", "x": 97, "y": 78, "z": 150, "d": 40, "text": "Одиночный сундук в камне, в 6 блоках под мостовой и в девяти блоках от казны. До ближайшей пустоты один блок камня.", "loot": "107 железных блоков, 64 алмазных блока, 64 алмаза, 28 золотых слитков"}, {"k": "3", "name": "Склад взрывчатки", "x": 24, "y": 69, "z": 58, "d": 40, "text": "Сундук в подвале Алмазного дворца, во втором ряду за другим сундуком. Он закрыт со всех сторон, поэтому открыть его нельзя, пока не уберёшь соседний.", "loot": "512 TNT, 8 огнив, 12 алмазов, 157 булыжника"}, {"k": "4", "name": "Глубокий тайник", "x": 139, "y": 15, "z": 136, "d": 85, "text": "Сундук и печь на Y 15, на 55 блоков ниже платформы, под Белым домом. К ним ведёт колодец шириной в блок от Y 52 вниз с десятью факелами. Сверху его закрывает один булыжник прямо под рельсами метро у X 136 · Z 132.", "loot": "90 алмазов, 10 золотых блоков"}, {"k": "5", "name": "Ход за морскими фонарями", "x": 104, "y": 27, "z": 180, "d": 70, "text": "Из подземного хода у X 104 · Z 179 вниз уходит колодец с водой. Его дно на Y 41 — морской фонарь, а под ним тайная часть: пустой колодец, комнатка 5 × 7 на Y 26–28 с факелом, ещё фонарь и колодец до самого Y 1. Морские фонари появились в октябре 2016 года, значит, ход закрыли не раньше.", "loot": "сундуков нет"}, {"k": "6", "name": "Колодец под мостовой", "x": 12, "y": 40, "z": 14, "d": 85, "text": "Колодец шириной в один блок от Y 69 до Y 14: 56 блоков прямо вниз и четыре факела по стенкам. Сверху его закрывает плита мостовой у X 12 · Z 14. Похоже, кто-то спускался за алмазами, а потом колодец замостили.", "loot": "пусто"}, {"k": "7", "name": "Шахтёрская стоянка", "x": 62, "y": 27, "z": 240, "d": 55, "text": "Сундук и печь на Y 27, на 44 блока ниже поверхности, в маленькой выработке. Это единственный тайник, до которого действительно далеко: 19 блоков породы до ближайшего хода.", "loot": "деревянная, каменная и железная кирки, древесный уголь, железный слиток"}, {"k": "8", "name": "Сундуки первых дней", "x": 78, "y": 71, "z": 94, "d": 40, "text": "Сундук под домом у X 78 · Z 94, от соседнего прохода его отделяет один алмазный блок. Похожий сундук с деревянной киркой закопан у X 192 · Z 125. Похоже на запасы самых первых дней.", "loot": "деревянная и каменная кирки, 37 земли, 12 адского камня, перо"}];
+const PROJ = [{"k": "1", "name": "Олимп: подъём и лаунж на вершине", "x": 90, "z": 216, "y": 99, "d": 90, "text": "Холм остаётся природным. Наверх ведут два настила из еловых досок с перилами и вашими фонарями: от гавани (58 блоков) и от парка у шпиля (35). На середине восточного настила площадка со скамейками. На вершине, на Y 99, деревянная палуба 22 × 14: перголы, шезлонги, стеклянное кафе с зелёной крышей, акации в кадках и стеклянное ограждение по краю.", "why": "Как на смотровых площадках Trollstigen: лёгкое дерево и стекло поверх скалы. У холма появляется причина подняться — отдых с видом на море и город."}, {"k": "2", "name": "Буквы DGC на склоне", "x": 101, "z": 240, "y": 85, "d": 150, "text": "Буквы высотой 26 блоков и общей шириной 80. В прошлой версии высота была 7, теперь почти вчетверо больше. Шрифт геометрический, линия толщиной около 6 блоков, белый кварц в два слоя на опорах. Каждая буква стоит на своей горизонтали склона, как надпись Hollywood на горе Ли. Верх на Y 97, на два блока ниже палубы, поэтому с вершины смотрят поверх букв на море.", "why": "Надпись видно с моря, с моста в X-Сити и с другого берега, где будет новый город."}, {"k": "3", "name": "Исторический центр не тронут", "x": 101, "z": 184, "y": 92, "d": 120, "text": "Алмазный дом, Золотой дом, здание парламента и железный дом у зоопарка восстановлены блок в блок. Скрипт сверяет каждое здание центра с сохранённым миром: дома совпадают полностью, изменено только дно зоопарка. Алмаз на дворцах и в центре остаётся.", "why": "Центр — история города. Его не перестраиваем, работаем только с ландшафтом вокруг."}, {"k": "4", "name": "Железная дорога на виадуке", "x": 92, "z": 200, "y": 96, "d": 100, "text": "Все 1 462 блока рельсов лежат на прежних местах. Там, где склон Олимпа под путём стал ниже, рельсы идут по лёгкому виадуку: плита из гладкого камня и кварцевые опоры через каждые 4 блока, всего 99 блоков пути. Над рельсами 3 блока свободного габарита.", "why": "Дорога поднята над землёй и читается отдельной линией, а склон под ней остаётся зелёным."}, {"k": "5", "name": "Зоопарк: мощение, вольеры и животные", "x": 117, "z": 170, "y": 72, "d": 75, "text": "Стены города остаются, по ним свисает плющ. Внутри мощёная прогулочная дорожка из светлой плиты с кварцевым ритмом. Вольеры: лошади (конюшня с зелёной крышей, поилка, акация), овцы (навес и берёзы), кролики (сено), пруд с кувшинками и еловой смотровой палубой. Вдоль дорожки бордюр и низкое стеклянное ограждение. На склон Олимпа зоопарк выходит горным вольером: ламы и козы за еловой изгородью, с укрытием. Вольер стоит у площадки на середине настила, поэтому стену резать не нужно.", "why": "Животные в модели — блочные фигуры, в игре это живые мобы с бирками, чтобы не исчезали. Подход Копенгагенского зоопарка: вольер как кусок природы, а люди на дорожке рядом."}, {"k": "6", "name": "Отель «Каскад»", "x": 158, "z": 50, "y": 78, "d": 95, "text": "Вместо коробки в воздухе — два корпуса, которые спускаются к пляжу террасами по пять уровней. Каждый ярус стоит на нижнем, ничего не висит. Фасады к морю из стекла, на каждой террасе еловая палуба и кадки с зеленью. Между корпусами водный каскад с площади к морю, по бокам пандусы. Верхняя крыша на уровне площади (Y 83) и продолжает её, на крыше бассейн. Внизу пляжная палуба с бассейном и шезлонгами, пирс.", "why": "Как Mountain Dwellings BIG: здание продолжает рельеф, а крыша одного яруса становится садом следующего."}, {"k": "7", "name": "Набережная от суда", "x": 180, "z": 68, "y": 70, "d": 90, "text": "Набережная на Y 70 продолжена от суда вдоль пляжа отеля в общем стиле: плита, каменная стенка, еловое ограждение, акации и фонари. К пляжу спускаются ступени-трибуна и пандус.", "why": "Суд, отель и пляж связаны одной прогулкой вдоль воды."}, {"k": "8", "name": "Мыс: площадь Парламента", "x": 116, "z": 14, "y": 86, "d": 95, "text": "Назначение мыса — главная гражданская площадь перед парламентом. Ось здания продолжает зеркальный бассейн 11 × 28, перед входом форум с двумя флагштоками. К западу от бассейна роща из 17 акаций по сетке мощения со скамьями, на северном краю лоджия музея истории города (2013–2016), в углу башня до Y 138 — её оставил. Поле старых фонарей-«солдат» у вокзала и на мысу снято целиком, включая три последних фонаря у вокзального сквера (95 блоков). Свет дают ваши фонари из чёрного стекла с кварцевой крышкой.", "why": "У мыса появляется смысл: церемонии, флаги, музей и вид на море."}, {"k": "9", "name": "Вокзальный парк заново", "x": 56, "z": 41, "y": 75, "d": 85, "text": "Тот же участок 39 × 52 блока, соседние здания не тронуты. Через парк идёт аллея шириной 5 блоков с кварцевыми бортами, рядом ручей и пергола. По сторонам газонные «комнаты»: в каждой два больших дуба и акация, шезлонги, цветы. Деревья заметно выше прежних, всего 16.", "why": "Сквер перед вокзалом становится садом, через который идут к поездам."}, {"k": "10", "name": "Парк у шпиля", "x": 45, "z": 219, "y": 79, "d": 85, "text": "Сделан в том же языке, что и вокзальный: аллея, ручей, пергола, газонные комнаты с большими дубами. На юге парк спускается к воде широкими ступенями. Рядом был отвесный каменный бок над водой, теперь там пологий травяной склон.", "why": "Два парка на разных концах города читаются как одна система."}, {"k": "11", "name": "Площадь у шпиля", "x": 15, "z": 225, "y": 84, "d": 95, "text": "Мощение с кварцевыми лучами от шпиля и кольцами через каждые 9 блоков. Вдоль южного края лаунж-палуба из ели с шезлонгами и стеклянным ограждением, под ней травяной склон до воды вместо обрыва. К парку спускаются зелёные ступени, по площади акации в кадках, скамейки и фонари.", "why": "Как в Superkilen: одна площадь, но разные зоны — проход, отдых и вид."}, {"k": "12", "name": "Тиволи за офисом премьер-министра", "x": 275, "z": 150, "y": 80, "d": 120, "text": "Луг становится парком развлечений в саду, как копенгагенский Тиволи. Набережная та же, что и везде: плита, каменная стенка, еловое ограждение. У воды колесо обозрения диаметром 31 блок с 12 цветными кабинками, верх на Y 100. Ещё карусель с красно-белым шатром, башня-качели до Y 92 и стеклянное кафе. Дорожки — главная ось и петля, вокруг цветники, акации и скамейки.", "why": "В Тиволи аттракционы стоят среди садов и павильонов, поэтому парк спокойный. Здесь так же: зелени больше, чем аттракционов."}, {"k": "13", "name": "Акации на пустырях", "x": 88, "z": 112, "y": 86, "d": 110, "text": "На больших мощёных площадках у края стоит набор из вашего старого города: акация в приствольном круге, современная скамья и ваш фонарь (столб из чёрного стекла, кварцевая крышка, подвесной фонарь). Всего 17 наборов, только по краям площадок, проходы свободны.", "why": "Пустой асфальт получает тень и место, где присесть, в одном стиле с аллеей от банка."}, {"k": "14", "name": "Шпиль и световая игла", "x": 11, "z": 240, "y": 160, "d": 140, "text": "Как в прошлой версии: рёбра шпиля сходятся в иглу на Y 178, всё из кварца, без светящихся блоков. В гавани тонкая игла на башенке, вершина на Y 103.", "why": "Две вертикали в одном языке тонких белых линий."}];
+const SESS = [["12 марта 2016", "Последние изменения файлов старого формата, включая 15 старых записей игроков"], ["13–14 июня 2016", "Запись в журнале базы данных: мир открывали"], ["8 и 14 июня 2017", "База восстанавливалась после сбоя. Это через неделю после выхода версии 1.1 с режимом приключений"], ["5 июня 2018", "В мир добавили аддон War Plane («Военный самолёт»)"], ["26–28 марта 2019", "Установлен набор текстур Java Aspects"], ["13 февраля 2025", "Обновилась иконка мира"], ["13 мая 2025", "Запись в базу"], ["30 декабря 2025", "Запись в базу"], ["22 марта 2026", "Запись в базу"], ["30 мая 2026", "Запись в базу, с 20:06 до 20:44"], ["15 июня 2026", "Запись в базу, с 14:28 до 17:44"], ["21 ноября 2026", "Сегодня: экспорт мира"]];
+const ASSET = {"city": "city.glb", "cityQ": "city_q.glb", "under": "under.glb", "underQ": "under_q.glb", "sec": "secrets.glb", "proj": "proj.glb", "projQ": "proj_q.glb"};
+const OX = 130, OZ = 125, OY = 56;
+const toM = (x, y, z) => new THREE.Vector3(x - OX + 0.5, y - OY, z - OZ + 0.5);
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const fmt = (n) => n.toLocaleString('ru-RU');
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* ---------- article ---------- */
+const placesEl = document.getElementById('places');
+const chipsEl = document.getElementById('chips');
+LM.forEach((l, i) => {
+  const c = document.createElement('button');
+  c.className = 'chip'; c.type = 'button';
+  c.innerHTML = `<b>${i + 1}</b>${esc(l.name)}`;
+  c.addEventListener('click', () => select(i, false));
+  chipsEl.appendChild(c);
+  const a = document.createElement('article');
+  a.className = 'place';
+  a.innerHTML = `<div class="top"><span class="num">${i + 1}</span><h3>${esc(l.name)}</h3></div>
+    <div class="meta">X ${l.x} · Z ${l.z} · ${esc(l.tag)}</div><p>${esc(l.text)}</p><p class="when">${esc(l.date)}</p>`;
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Показать в 3D';
+  b.addEventListener('click', () => select(i, true));
+  a.appendChild(b); placesEl.appendChild(a);
+});
+const underEl = document.getElementById('underList');
+UND.forEach((u, i) => {
+  const a = document.createElement('article');
+  a.className = 'place';
+  a.innerHTML = `<div class="top"><span class="num u">${u.k}</span><h3>${esc(u.name)}</h3></div>
+    <div class="meta">X ${u.x} · Y ${u.y} · Z ${u.z}</div><p>${esc(u.text)}</p>`;
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Показать под землёй';
+  b.addEventListener('click', () => selectUnder(i, true));
+  a.appendChild(b); underEl.appendChild(a);
+});
+const ptb = document.querySelector('#ptable tbody');
+PLAYERS.forEach(p => {
+  const tr = document.createElement('tr');
+  if (p.local) tr.className = 'me';
+  const where = `${esc(p.place)}<br><span class="mono">X ${p.x} · Y ${p.y} · Z ${p.z}</span>` + (p.local ? '<br>запись владельца этого iPad' : '');
+  const extra = [p.armor, p.bed ? 'кровать: ' + p.bed : ''].filter(Boolean).join('<br>') || '—';
+  tr.innerHTML = `<td class="num">${p.n}</td><td>${where}</td><td>${esc(p.mode)}</td><td>${p.inv.length ? p.inv.map(esc).join(', ') : 'пусто'}</td><td>${extra}</td>`;
+  ptb.appendChild(tr);
+});
+const sessEl = document.getElementById('sessions');
+SESS.forEach(s => { const li = document.createElement('li'); li.innerHTML = `<b>${esc(s[0])}</b><span>${esc(s[1])}</span>`; sessEl.appendChild(li); });
+
+const tip = document.getElementById('tip');
+function bars(el, rows, total, unit) {
+  const max = Math.max(...rows.map(r => r.v));
+  rows.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'bar-row' + (r.img ? '' : ' noimg'); row.tabIndex = 0;
+    const pct = total ? (100 * r.v / total) : null;
+    const pctTxt = pct !== null ? pct.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + '%' : '';
+    row.innerHTML = (r.img ? `<img src="${r.img}" alt="">` : '') +
+      `<span>${r.label}</span><span class="track"><span class="fill" style="width:${Math.max(0.6, 100 * r.v / max)}%"></span></span>` +
+      `<span class="v">${fmt(r.v)}${pctTxt ? ` <small>${pctTxt}</small>` : ''}</span>`;
+    const t = `${r.label}: ${fmt(r.v)} ${unit}${pctTxt ? ', ' + pctTxt + ' от всех' : ''}${r.note ? '. ' + r.note : ''}`;
+    row.setAttribute('aria-label', t);
+    const show = (x, y) => { tip.textContent = t; tip.style.display = 'block'; tip.style.left = Math.min(x + 14, innerWidth - 270) + 'px'; tip.style.top = (y + 14) + 'px'; };
+    row.addEventListener('pointermove', e => show(e.clientX, e.clientY));
+    row.addEventListener('pointerleave', () => tip.style.display = 'none');
+    row.addEventListener('focus', () => { const b = row.getBoundingClientRect(); show(b.left + 40, b.bottom - 4); });
+    row.addEventListener('blur', () => tip.style.display = 'none');
+    el.appendChild(row);
+  });
+}
+bars(document.getElementById('matBars'), [
+  { label: 'Алмазный блок', v: 52634, img: SW.diamond_block },
+  { label: 'Кварц', v: 36768, img: SW.quartz_block },
+  { label: 'Каменная плита', v: 21792, img: SW.stone_slab, note: 'Ею вымощена платформа' },
+  { label: 'Железный блок', v: 17613, img: SW.iron_block },
+  { label: 'Золотой блок', v: 15829, img: SW.gold_block },
+  { label: 'Булыжник', v: 11421, img: SW.cobblestone },
+  { label: 'Стеклянная панель', v: 6222, img: SW.glass },
+  { label: 'Светокамень', v: 4427, img: SW.glowstone },
+  { label: 'Каменные ступени', v: 3230, img: SW.stone_stairs },
+  { label: 'Морской фонарь', v: 1983, img: SW.seaLantern },
+  { label: 'Изумрудный блок', v: 1971, img: SW.emerald_block },
+], 184832, 'блоков');
+bars(document.getElementById('eraBars'), [
+  { label: '2014–2016 · версии 0.9–0.17', v: 62, note: 'Дальний восток мира' },
+  { label: '2016–2018 · версии 1.0–1.2', v: 3414 },
+  { label: '2018–2021 · версии 1.2.13–1.17', v: 12835, note: 'Большая часть мира' },
+  { label: 'после 2021 · версия 1.18', v: 3306, note: 'Сюда входит весь город' },
+], 19617, 'чанков');
+
+const secEl = document.getElementById('secretList');
+SEC.forEach((u, i) => {
+  const a = document.createElement('article');
+  a.className = 'place';
+  a.innerHTML = `<div class="top"><span class="num s">${u.k}</span><h3>${esc(u.name)}</h3></div>
+    <div class="meta">X ${u.x} · Y ${u.y} · Z ${u.z}</div><p>${esc(u.text)}</p><p class="loot">Внутри: ${esc(u.loot)}</p>`;
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Показать под землёй';
+  b.addEventListener('click', () => { if (window.__go) window.__go('secret', i, true); else { openCard(secCard(i)); viewer.scrollIntoView({ block: 'start' }); } });
+  a.appendChild(b); secEl.appendChild(a);
+});
+document.querySelectorAll('.chartwrap [data-tip]').forEach(el => {
+  const t = el.getAttribute('data-tip');
+  el.addEventListener('pointermove', e => { tip.textContent = t; tip.style.display = 'block'; tip.style.left = Math.min(e.clientX + 14, innerWidth - 270) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; });
+  el.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
+});
+const projEl = document.getElementById('projList');
+PROJ.forEach((u, i) => {
+  const a = document.createElement('article');
+  a.className = 'place';
+  a.innerHTML = `<div class="top"><span class="num g">${u.k}</span><h3>${esc(u.name)}</h3></div>
+    <div class="meta">X ${u.x} · Z ${u.z}</div><p>${esc(u.text)}</p><p class="why">${esc(u.why)}</p>`;
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Показать в 3D';
+  b.addEventListener('click', () => { if (window.__go) window.__go('proj', i, true); else { openCard(projCard(i)); viewer.scrollIntoView({ block: 'start' }); } });
+  a.appendChild(b); projEl.appendChild(a);
+});
+document.querySelectorAll('.compare').forEach(c => {
+  const inp = c.querySelector('input');
+  const set = (v) => { v = Math.max(0, Math.min(100, v)); c.style.setProperty('--cut', v + '%'); inp.value = v; };
+  let drag = false;
+  const at = (e) => { const r = c.getBoundingClientRect(); set(100 * (e.clientX - r.left) / r.width); };
+  c.addEventListener('pointerdown', e => { drag = true; at(e); });
+  c.addEventListener('pointermove', e => { if (drag) at(e); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => c.addEventListener(t, () => { drag = false; }));
+  c.addEventListener('click', e => { at(e); inp.focus({ preventScroll: true }); });
+  inp.addEventListener('input', () => set(+inp.value));
+});
+/* ---------- card ---------- */
+const viewer = document.getElementById('viewer');
+const card = document.getElementById('card');
+function openCard(o) {
+  document.getElementById('cardTag').textContent = o.tag;
+  document.getElementById('cardXZ').textContent = o.xz;
+  document.getElementById('cardName').textContent = o.name;
+  document.getElementById('cardText').textContent = o.text;
+  const d = document.getElementById('cardDate'); d.textContent = o.date || ''; d.style.display = o.date ? '' : 'none';
+  card.classList.add('open');
+  viewer.classList.add('picked');
+}
+function closeCard() { card.classList.remove('open'); }
+document.getElementById('cardClose').onclick = closeCard;
+const lmCard = (i) => { const l = LM[i]; return { tag: `${i + 1} · ${l.tag}`, xz: `X ${l.x} · Z ${l.z}`, name: l.name, text: l.text, date: l.date }; };
+const unCard = (i) => { const u = UND[i]; return { tag: `${u.k} · под землёй`, xz: `X ${u.x} · Y ${u.y} · Z ${u.z}`, name: u.name, text: u.text }; };
+const secCard = (i) => { const u = SEC[i]; return { tag: `${u.k} · тайник`, xz: `X ${u.x} · Y ${u.y} · Z ${u.z}`, name: u.name, text: `${u.text} Внутри: ${u.loot}.` }; };
+const projCard = (i) => { const u = PROJ[i]; return { tag: `${u.k} · проект`, xz: `X ${u.x} · Z ${u.z}`, name: u.name, text: u.text }; };
+const plCard = (p) => ({ tag: `игрок ${p.n} · ${p.mode}`, xz: `X ${p.x} · Y ${p.y} · Z ${p.z}`, name: p.local ? 'Владелец этого iPad' : `Запись игрока ${p.n}`,
+  text: `Вышел из игры ${p.place}. С собой: ${p.inv.length ? p.inv.join(', ') : 'ничего'}.${p.armor ? ' ' + p.armor[0].toUpperCase() + p.armor.slice(1) + '.' : ''}${p.bed ? ' Кровать: ' + p.bed + '.' : ''}` });
+function select(i, scroll) { if (window.__go) window.__go('city', i, scroll); else { openCard(lmCard(i)); if (scroll) viewer.scrollIntoView({ block: 'start' }); } }
+function selectUnder(i, scroll) { if (window.__go) window.__go('under', i, scroll); else { openCard(unCard(i)); if (scroll) viewer.scrollIntoView({ block: 'start' }); } }
+
+/* ---------- 3D viewer ---------- */
+const canvas = document.getElementById('c');
+const loadingEl = document.getElementById('loading');
+const arLink = document.getElementById('arLink');
+try { if (arLink.relList && arLink.relList.supports && arLink.relList.supports('ar')) viewer.classList.add('ar-ok'); } catch (e) {}
+
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); }
+catch (e) { loadingEl.textContent = 'Этот браузер не показывает 3D. Ниже — картинка и весь разбор.'; }
+if (renderer) start();
+
+function start() {
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 1, 1, 3000);
+  const HOME = { p: new THREE.Vector3(240, 165, 270), t: new THREE.Vector3(0, 22, -15) };
+  const UHOME = { p: new THREE.Vector3(170, 75, 235), t: new THREE.Vector3(-25, -12, -5) };
+  camera.position.copy(HOME.p);
+  const controls = new OrbitControls(camera, canvas);
+  controls.target.copy(HOME.t);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.maxPolarAngle = Math.PI * 0.48; controls.minDistance = 8; controls.maxDistance = 760;
+  controls.autoRotateSpeed = 0.7;
+  controls.update();
+  const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x6b5a45, 0.95); scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff1dc, 3.2);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -230, right: 230, top: 230, bottom: -230, near: 10, far: 900 });
+  sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.2;
+  scene.add(sun, sun.target);
+  let model = null, under = null, proj = null, mood = 'day', layer = 'city', playersOn = false, dirty = 3;
+  const $ = (id) => document.getElementById(id);
+
+  function light() {
+    $('mDay').setAttribute('aria-pressed', mood === 'day');
+    $('mNight').setAttribute('aria-pressed', mood === 'night');
+    if (layer === 'under') {
+      scene.background = new THREE.Color(0x0c111c); scene.fog = null;
+      hemi.color.set(0xe2e9ff); hemi.groundColor.set(0x40362a); hemi.intensity = 1.5;
+      sun.color.set(0xffffff); sun.intensity = 1.6; sun.position.set(120, 300, 80);
+      renderer.toneMappingExposure = 1.0;
+    } else if (mood === 'night') {
+      scene.background = new THREE.Color(0x0b1430); scene.fog = new THREE.Fog(0x0b1430, 260, 950);
+      hemi.color.set(0x3a4a7a); hemi.groundColor.set(0x101018); hemi.intensity = 0.35;
+      sun.color.set(0x9fb4ff); sun.intensity = 0.35; sun.position.set(-150, 260, -120);
+      renderer.toneMappingExposure = 1.6;
+    } else {
+      scene.background = new THREE.Color(0x9fcbf0); scene.fog = new THREE.Fog(0x9fcbf0, 480, 1500);
+      hemi.color.set(0xcfe6ff); hemi.groundColor.set(0x6b5a45); hemi.intensity = 0.95;
+      sun.color.set(0xfff1dc); sun.intensity = 3.2; sun.position.set(200, 260, 90);
+      renderer.toneMappingExposure = 1.0;
+    }
+    if (model) model.traverse(o => {
+      if (!o.isMesh) return; const m = o.material, u = m.userData;
+      if (!u.saved) { u.saved = { t: m.transparent, o: m.opacity, d: m.depthWrite }; o.userData.cs = o.castShadow; }
+      if (layer === 'under') { m.transparent = true; m.opacity = 0.07; m.depthWrite = false; o.castShadow = false; if (m.emissiveMap) m.emissiveIntensity = 0; }
+      else { m.transparent = u.saved.t; m.opacity = u.saved.o; m.depthWrite = u.saved.d; o.castShadow = o.userData.cs; if (m.emissiveMap) m.emissiveIntensity = mood === 'night' ? 1.8 : 0.15; }
+      m.needsUpdate = true;
+    });
+    if (under) under.visible = layer === 'under';
+    if (model) model.visible = layer !== 'proj';
+    if (proj) {
+      proj.visible = layer === 'proj';
+      proj.traverse(o => { if (o.isMesh && o.material.emissiveMap) o.material.emissiveIntensity = mood === 'night' ? 1.8 : 0.15; });
+    }
+    dirty = 3;
+  }
+  $('mDay').onclick = () => { mood = 'day'; light(); };
+  $('mNight').onclick = () => { mood = 'night'; light(); };
+  const bOrbit = $('bOrbit');
+  bOrbit.onclick = () => { controls.autoRotate = !controls.autoRotate; bOrbit.setAttribute('aria-pressed', controls.autoRotate); dirty = 3; };
+  $('bHome').onclick = () => { closeCard(); if (layer === 'under') fly(UHOME.p, UHOME.t); else fly(HOME.p, HOME.t); };
+  $('lCity').onclick = () => setLayer('city', true);
+  $('lUnder').onclick = () => setLayer('under', true);
+  $('lProj').onclick = () => setLayer('proj', true);
+  const bPl = $('bPlayers');
+  bPl.onclick = () => { playersOn = !playersOn; bPl.setAttribute('aria-pressed', playersOn); dirty = 3; };
+
+  function resize() {
+    const w = viewer.clientWidth, h = viewer.clientHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); dirty = 3;
+  }
+  new ResizeObserver(resize).observe(viewer); resize();
+  controls.addEventListener('change', () => { dirty = 2; });
+
+  /* pins */
+  const pinsEl = $('pins');
+  const pins = [];
+  function addPin(group, label, pos, cls, aria, onClick) {
+    const b = document.createElement('button');
+    b.className = 'pin ' + cls; b.type = 'button'; b.textContent = label; b.setAttribute('aria-label', aria);
+    b.addEventListener('click', onClick); pinsEl.appendChild(b);
+    pins.push({ el: b, pos, group });
+    return b;
+  }
+  LM.forEach((l, i) => addPin('city', String(i + 1), toM(l.x, l.top + 4, l.z), '', `${i + 1}. ${l.name}`, () => go('city', i, false)));
+  UND.forEach((u, i) => addPin('under', u.k, toM(u.x, u.y + 3, u.z), 'u', `${u.k}. ${u.name}`, () => go('under', i, false)));
+  const secPins = SEC.map((u, i) => addPin('under', u.k, toM(u.x, u.y + 3, u.z), 's', `Тайник ${u.k}. ${u.name}`, () => go('secret', i, false)));
+  const projPins = PROJ.map((u, i) => addPin('proj', u.k, toM(u.x, u.y + 8, u.z), 'g', `Проект ${u.k}. ${u.name}`, () => go('proj', i, false)));
+  PLAYERS.forEach(p => { if (p.x > -40 && p.x < 300 && p.z > -40 && p.z < 300) addPin('players', '', toM(p.x, p.y + 2, p.z), 'p', `Игрок ${p.n}`, () => goPlayer(p)); });
+  const v = new THREE.Vector3();
+  function placePins() {
+    const w = viewer.clientWidth, h = viewer.clientHeight;
+    for (const p of pins) {
+      const on = model && ((p.group === 'players' && playersOn) || p.group === layer);
+      if (on) { v.copy(p.pos).project(camera); }
+      if (!on || v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1) { p.el.style.transform = 'translate(-9999px,0)'; continue; }
+      p.el.style.transform = `translate(${(v.x * 0.5 + 0.5) * w}px, ${(-v.y * 0.5 + 0.5) * h}px)`;
+    }
+  }
+  const mark = (el) => pins.forEach(q => q.el.setAttribute('aria-current', q.el === el ? 'true' : 'false'));
+
+  /* fly */
+  let anim = null;
+  function fly(p, t) {
+    controls.autoRotate = false; bOrbit.setAttribute('aria-pressed', 'false');
+    if (reduce) { camera.position.copy(p); controls.target.copy(t); controls.update(); dirty = 3; return; }
+    anim = { p0: camera.position.clone(), t0: controls.target.clone(), p1: p.clone(), t1: t.clone(), s: performance.now(), d: 1300 };
+  }
+  function flyTo(t, d, minPhi, maxPhi) {
+    const sph = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    sph.radius = d; sph.phi = Math.min(Math.max(sph.phi, minPhi), maxPhi);
+    fly(t.clone().add(new THREE.Vector3().setFromSpherical(sph)), t);
+  }
+  async function setLayer(l, moveCam) {
+    if (l === layer && (l !== 'under' || under)) return;
+    layer = l;
+    $('lCity').setAttribute('aria-pressed', l === 'city'); $('lUnder').setAttribute('aria-pressed', l === 'under');
+    $('lProj').setAttribute('aria-pressed', l === 'proj');
+    if (l === 'proj' && !proj) {
+      loadingEl.textContent = 'Загружаю проект…'; loadingEl.style.display = 'block';
+      try { proj = await loadGLB(ASSET.proj, ASSET.projQ); } catch (e) { loadingEl.textContent = 'Проект не загрузился'; return; }
+      loadingEl.style.display = 'none';
+      proj.traverse(o => {
+        if (!o.isMesh) return;
+        o.castShadow = true; o.receiveShadow = true;
+        const m = o.material;
+        if (m.map) { m.map.magFilter = THREE.NearestFilter; m.map.minFilter = THREE.NearestMipmapLinearFilter; m.map.anisotropy = 4; m.map.needsUpdate = true; }
+        if (m.transparent) { o.castShadow = false; m.depthWrite = false; }
+        if (m.name && m.name.includes('_water_')) { o.renderOrder = 2; m.color.set(0x5fa8ff); }
+      });
+      scene.add(proj);
+    }
+    if (l === 'under' && !under) {
+      loadingEl.textContent = 'Загружаю подземный слой…'; loadingEl.style.display = 'block';
+      try { under = await loadGLB(ASSET.under, ASSET.underQ); } catch (e) { loadingEl.textContent = 'Подземный слой не загрузился'; return; }
+      loadingEl.style.display = 'none';
+      under.traverse(o => {
+        if (!o.isMesh) return; const m = o.material;
+        if (m.map) { m.map.magFilter = THREE.NearestFilter; m.map.minFilter = THREE.NearestMipmapLinearFilter; m.map.needsUpdate = true; }
+        if (m.name && m.name.startsWith('void')) { m.transparent = true; m.opacity = 0.3; m.depthWrite = false; m.side = THREE.DoubleSide; m.color.set(0xf2b24c); m.emissive = new THREE.Color(0x7a4c0c); o.renderOrder = 3; }
+      });
+      try {
+        const sec = await loadGLB(ASSET.sec, ASSET.sec);
+        sec.traverse(o => {
+          if (!o.isMesh) return; const m = o.material;
+          if (m.map) { m.map.magFilter = THREE.NearestFilter; m.map.minFilter = THREE.NearestMipmapLinearFilter; m.map.needsUpdate = true; }
+          if (m.name && m.name.startsWith('secret')) { m.transparent = true; m.opacity = 0.5; m.depthWrite = false; m.side = THREE.DoubleSide; m.color.set(0xff5c7a); m.emissive = new THREE.Color(0x7a1430); o.renderOrder = 4; }
+        });
+        under.add(sec);
+      } catch (e) {}
+      scene.add(under);
+    }
+    light();
+    if (moveCam) { closeCard(); if (l === 'under') fly(UHOME.p, UHOME.t); }
+  }
+  async function go(kind, i, scroll) {
+    if (kind === 'city') {
+      await setLayer('city', false);
+      const l = LM[i];
+      flyTo(toM(l.x, (l.top + l.ground) / 2, l.z), l.d, 0.75, 1.1);
+      mark(pins.filter(p => p.group === 'city')[i].el);
+      openCard(lmCard(i));
+    } else if (kind === 'proj') {
+      await setLayer('proj', false);
+      const u = PROJ[i];
+      flyTo(toM(u.x, u.y, u.z), u.d, 0.75, 1.1);
+      mark(projPins[i]);
+      openCard(projCard(i));
+    } else if (kind === 'secret') {
+      await setLayer('under', false);
+      const u = SEC[i];
+      flyTo(toM(u.x, u.y, u.z), u.d, 0.9, 1.25);
+      mark(secPins[i]);
+      openCard(secCard(i));
+    } else {
+      await setLayer('under', false);
+      const u = UND[i];
+      flyTo(toM(u.x, u.y, u.z), u.d, 0.9, 1.25);
+      mark(pins.filter(p => p.group === 'under' && p.el.classList.contains('u'))[i].el);
+      openCard(unCard(i));
+    }
+    if (scroll) viewer.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  }
+  function goPlayer(p) { flyTo(toM(p.x, p.y, p.z), 45, 0.8, 1.15); openCard(plCard(p)); }
+  window.__go = go;
+
+  /* loading */
+  let useMeshopt = false;
+  const decoderReady = Promise.race([MeshoptDecoder.ready, new Promise((_, r) => setTimeout(r, 2500))]).then(() => { useMeshopt = true; }).catch(() => {});
+  function loadGLB(url, fallback, onProgress) {
+    return decoderReady.then(() => new Promise((res, rej) => {
+      const loader = new GLTFLoader();
+      const plain = () => new GLTFLoader().load(fallback, g => res(g.scene), onProgress, rej);
+      if (useMeshopt) { loader.setMeshoptDecoder(MeshoptDecoder); loader.load(url, g => res(g.scene), onProgress, plain); }
+      else plain();
+    }));
+  }
+  const onProgress = (e) => { if (e.total) loadingEl.textContent = `Загружаю модель… ${Math.round(100 * e.loaded / e.total)}%`; };
+  loadGLB(ASSET.city, ASSET.cityQ, onProgress).then(sc => {
+    model = sc;
+    model.traverse(o => {
+      if (!o.isMesh) return;
+      o.castShadow = true; o.receiveShadow = true;
+      const m = o.material;
+      if (m.map) { m.map.magFilter = THREE.NearestFilter; m.map.minFilter = THREE.NearestMipmapLinearFilter; m.map.anisotropy = 4; m.map.needsUpdate = true; }
+      if (m.transparent) { o.castShadow = false; m.depthWrite = false; }
+      if (m.name && m.name.includes('_water_')) { o.renderOrder = 2; m.color.set(0x5fa8ff); }
+    });
+    scene.add(model);
+    light();
+    viewer.classList.add('ready');
+  }).catch(() => { loadingEl.textContent = 'Модель не загрузилась. Обновите страницу, а пока ниже весь разбор.'; });
+
+  let visible = true;
+  new IntersectionObserver(es => { visible = es[0].isIntersecting; }).observe(viewer);
+  const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  function tick(now) {
+    requestAnimationFrame(tick);
+    if (!visible || document.hidden) return;
+    if (anim) {
+      const k = Math.min(1, (now - anim.s) / anim.d), e = ease(k);
+      camera.position.lerpVectors(anim.p0, anim.p1, e);
+      controls.target.lerpVectors(anim.t0, anim.t1, e);
+      if (k >= 1) anim = null;
+      dirty = 2;
+    }
+    controls.update();
+    if (controls.autoRotate) dirty = 1;
+    if (dirty > 0 && model) { renderer.render(scene, camera); placePins(); dirty--; }
+  }
+  requestAnimationFrame(tick);
+  canvas.addEventListener('pointerdown', () => { $('hint').style.display = 'none'; }, { once: true });
+}
+</script>
+</body>
+</html>
